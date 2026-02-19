@@ -1,0 +1,718 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>GB Paint</title>
+  <style>
+    :root {
+      --bg: #111;
+      --panel: #1c1c1c;
+      --text: #e9e9e9;
+      --accent: #86c06c;
+      --warn: #ffcc66;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--text);
+      font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+      display: grid;
+      grid-template-columns: 340px 1fr;
+      min-height: 100vh;
+    }
+    .panel {
+      background: var(--panel);
+      padding: 12px;
+      overflow: auto;
+      border-right: 1px solid #333;
+    }
+    h1 { margin: 0 0 8px; font-size: 1.2rem; }
+    h2 { margin: 10px 0 6px; font-size: 0.95rem; }
+    .row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin: 6px 0; }
+    button, select, input[type="checkbox"], input[type="number"] {
+      background: #2b2b2b;
+      color: var(--text);
+      border: 1px solid #444;
+      border-radius: 6px;
+      padding: 4px 8px;
+    }
+    button.active { outline: 2px solid var(--accent); }
+    .swatch {
+      width: 28px; height: 28px; border: 2px solid #000; cursor: pointer;
+      border-radius: 4px;
+    }
+    .meta { font-size: 0.88rem; opacity: 0.95; }
+    .warn { color: var(--warn); font-weight: 700; }
+    .workspace {
+      display: grid;
+      place-items: center;
+      padding: 12px;
+      overflow: auto;
+    }
+    .canvas-wrap {
+      position: relative;
+      width: fit-content;
+      height: fit-content;
+      box-shadow: 0 0 0 1px #444;
+      background: #000;
+    }
+    canvas {
+      image-rendering: pixelated;
+      image-rendering: crisp-edges;
+      display: block;
+    }
+    #overlayCanvas {
+      position: absolute;
+      left: 0;
+      top: 0;
+      pointer-events: none;
+    }
+    details summary { cursor: pointer; }
+    #uniqueTilesList {
+      display: grid;
+      grid-template-columns: repeat(auto-fill,minmax(90px,1fr));
+      gap: 8px;
+      margin-top: 8px;
+    }
+    .tile-item {
+      background: #262626;
+      border: 1px solid #3f3f3f;
+      border-radius: 6px;
+      padding: 4px;
+      font-size: 0.75rem;
+    }
+    .tile-item canvas { width: 64px; height: 64px; margin: 0 auto; }
+    kbd { background:#333; border-radius:4px; padding:1px 4px; border:1px solid #444; }
+    @media (max-width: 920px) {
+      body { grid-template-columns: 1fr; grid-template-rows: auto 1fr; }
+      .panel { border-right: none; border-bottom: 1px solid #333; }
+    }
+  </style>
+</head>
+<body>
+  <aside class="panel">
+    <h1>GB Paint</h1>
+    <div class="meta">160x144 / 固定4色 / タイル制約可視化</div>
+
+    <h2>ツール</h2>
+    <div class="row">
+      <button id="toolPen" class="active">ペン (B)</button>
+      <button id="toolEraser">消しゴム (E)</button>
+      <button id="toolFill">塗りつぶし (G)</button>
+    </div>
+
+    <h2>ブラシサイズ</h2>
+    <div class="row" id="brushButtons">
+      <button data-size="1" class="active">1px</button>
+      <button data-size="2">2px</button>
+      <button data-size="4">4px</button>
+    </div>
+
+    <h2>パレット</h2>
+    <div class="row" id="paletteRow"></div>
+
+    <h2>パターン塗り (P)</h2>
+    <div class="row">
+      <label><input type="checkbox" id="patternEnabled" /> 有効</label>
+      <select id="patternType">
+        <option value="checker1">1px市松</option>
+        <option value="dither25">2x2 25%</option>
+        <option value="dither50">2x2 50%</option>
+        <option value="dither75">2x2 75%</option>
+      </select>
+      <label><input type="checkbox" id="patternInvert" /> 反転</label>
+    </div>
+
+    <h2>表示</h2>
+    <div class="row">
+      <label><input type="checkbox" id="gridToggle" checked /> グリッド (Shift+G)</label>
+      <label><input type="checkbox" id="tileSnapToggle" /> 8x8タイルスナップ (T)</label>
+      <label><input type="checkbox" id="heatmapToggle" /> ユニークタイル ヒートマップ</label>
+    </div>
+
+    <h2>タイル統計</h2>
+    <div class="meta" id="tileStats"></div>
+    <div class="row">
+      <label><input type="checkbox" id="includeEmptyTiles" /> 空タイルをユニーク数に含める</label>
+    </div>
+    <div id="tileWarning" class="warn"></div>
+
+    <details>
+      <summary>ユニークタイル一覧</summary>
+      <div id="uniqueTilesList"></div>
+    </details>
+
+    <h2>ファイル</h2>
+    <div class="row">
+      <button id="newBtn">新規</button>
+      <button id="saveJsonBtn">JSON保存</button>
+      <button id="loadJsonBtn">JSON読込</button>
+    </div>
+    <input type="file" id="jsonFileInput" accept="application/json" style="display:none" />
+
+    <h2>PNG書き出し</h2>
+    <div class="row" id="pngButtons">
+      <button data-kind="scale" data-scale="1">160x144</button>
+      <button data-kind="scale" data-scale="2">2x</button>
+      <button data-kind="scale" data-scale="3">3x</button>
+      <button data-kind="scale" data-scale="4">4x</button>
+      <button data-kind="scale" data-scale="8">8x</button>
+      <button data-kind="square" data-size="1080">1080四角</button>
+      <button data-kind="square" data-size="1024">1024四角</button>
+    </div>
+
+    <h2>ショートカット</h2>
+    <div class="meta">
+      <div><kbd>1-4</kbd> 色選択 / <kbd>B</kbd>ペン / <kbd>E</kbd>消しゴム / <kbd>P</kbd>パターン</div>
+      <div><kbd>G</kbd>塗りつぶし / <kbd>Shift+G</kbd>グリッド / <kbd>T</kbd>タイルスナップ / <kbd>[</kbd><kbd>]</kbd>ブラシサイズ</div>
+      <div><kbd>Ctrl/Cmd+Z</kbd> Undo / <kbd>Ctrl/Cmd+Shift+Z</kbd> or <kbd>Ctrl+Y</kbd> Redo</div>
+      <div><kbd>Ctrl/Cmd+S</kbd> JSON保存 / <kbd>Ctrl/Cmd+O</kbd> JSON読込 / <kbd>Ctrl/Cmd+N</kbd> 新規</div>
+      <div><kbd>Ctrl/Cmd+E</kbd> PNG書き出し(160x144)</div>
+    </div>
+  </aside>
+
+  <main class="workspace">
+    <div class="canvas-wrap" id="canvasWrap">
+      <canvas id="paintCanvas" width="160" height="144"></canvas>
+      <canvas id="overlayCanvas" width="160" height="144"></canvas>
+    </div>
+  </main>
+
+<script>
+(() => {
+  const W = 160, H = 144, TILE = 8;
+  const palette = ["#071821", "#306850", "#86c06c", "#e0f8cf"];
+  const bgIndex = 3;
+  const MAX_HISTORY = 100;
+
+  const state = {
+    pixels: new Uint8Array(W * H).fill(bgIndex),
+    tool: "pen",
+    brushSize: 1,
+    selectedColor: 0,
+    showGrid: true,
+    tileSnap: false,
+    patternEnabled: false,
+    patternType: "checker1",
+    patternInvert: false,
+    includeEmptyTiles: false,
+    showHeatmap: false,
+    isDrawing: false,
+    strokeBefore: null,
+    undoStack: [],
+    redoStack: [],
+  };
+
+  const paintCanvas = document.getElementById("paintCanvas");
+  const paintCtx = paintCanvas.getContext("2d", { willReadFrequently: true });
+  const overlayCanvas = document.getElementById("overlayCanvas");
+  const overlayCtx = overlayCanvas.getContext("2d");
+  const canvasWrap = document.getElementById("canvasWrap");
+
+  const paletteRow = document.getElementById("paletteRow");
+  const brushButtons = [...document.querySelectorAll("#brushButtons button")];
+  const patternEnabledEl = document.getElementById("patternEnabled");
+  const patternTypeEl = document.getElementById("patternType");
+  const patternInvertEl = document.getElementById("patternInvert");
+  const gridToggleEl = document.getElementById("gridToggle");
+  const tileSnapToggleEl = document.getElementById("tileSnapToggle");
+  const heatmapToggleEl = document.getElementById("heatmapToggle");
+  const includeEmptyTilesEl = document.getElementById("includeEmptyTiles");
+  const tileStatsEl = document.getElementById("tileStats");
+  const tileWarningEl = document.getElementById("tileWarning");
+  const uniqueTilesListEl = document.getElementById("uniqueTilesList");
+
+  function updateScale() {
+    const panel = document.querySelector('.panel');
+    const panelW = window.innerWidth > 920 ? panel.offsetWidth : 0;
+    const availW = Math.max(200, window.innerWidth - panelW - 32);
+    const panelH = window.innerWidth <= 920 ? panel.offsetHeight : 0;
+    const availH = Math.max(200, window.innerHeight - panelH - 32);
+    const scale = Math.max(1, Math.floor(Math.min(availW / W, availH / H)));
+    paintCanvas.style.width = `${W * scale}px`;
+    paintCanvas.style.height = `${H * scale}px`;
+    overlayCanvas.style.width = `${W * scale}px`;
+    overlayCanvas.style.height = `${H * scale}px`;
+  }
+
+  function setPixel(x, y, idx) {
+    if (x < 0 || y < 0 || x >= W || y >= H) return false;
+    const i = y * W + x;
+    if (state.pixels[i] === idx) return false;
+    state.pixels[i] = idx;
+    return true;
+  }
+
+  function shouldPaintPatternCell(x, y) {
+    if (!state.patternEnabled || state.tool !== "pen") return true;
+    let paint = true;
+    if (state.patternType === "checker1") paint = ((x + y) % 2 === 0);
+    else {
+      const bx = x % 2;
+      const by = y % 2;
+      const bit = by * 2 + bx;
+      if (state.patternType === "dither25") paint = bit === 0;
+      else if (state.patternType === "dither50") paint = (bit === 0 || bit === 3);
+      else if (state.patternType === "dither75") paint = bit !== 3;
+    }
+    return state.patternInvert ? !paint : paint;
+  }
+
+  function drawBrush(cx, cy) {
+    const size = state.brushSize;
+    const half = Math.floor(size / 2);
+    let changed = false;
+    const drawColor = state.tool === "eraser" ? bgIndex : state.selectedColor;
+    for (let dy = 0; dy < size; dy++) {
+      for (let dx = 0; dx < size; dx++) {
+        const x = cx + dx - half;
+        const y = cy + dy - half;
+        if (!shouldPaintPatternCell(x, y)) continue;
+        if (setPixel(x, y, drawColor)) changed = true;
+      }
+    }
+    return changed;
+  }
+
+  function linePoints(x0, y0, x1, y1) {
+    const points = [];
+    const dx = Math.abs(x1 - x0);
+    const dy = Math.abs(y1 - y0);
+    const sx = x0 < x1 ? 1 : -1;
+    const sy = y0 < y1 ? 1 : -1;
+    let err = dx - dy;
+    while (true) {
+      points.push([x0, y0]);
+      if (x0 === x1 && y0 === y1) break;
+      const e2 = 2 * err;
+      if (e2 > -dy) { err -= dy; x0 += sx; }
+      if (e2 < dx) { err += dx; y0 += sy; }
+    }
+    return points;
+  }
+
+  function renderCanvas() {
+    const img = paintCtx.createImageData(W, H);
+    for (let i = 0; i < state.pixels.length; i++) {
+      const c = palette[state.pixels[i]];
+      const r = parseInt(c.slice(1,3),16);
+      const g = parseInt(c.slice(3,5),16);
+      const b = parseInt(c.slice(5,7),16);
+      const p = i * 4;
+      img.data[p] = r; img.data[p+1] = g; img.data[p+2] = b; img.data[p+3] = 255;
+    }
+    paintCtx.putImageData(img, 0, 0);
+    renderOverlay();
+    updateTileInfo();
+  }
+
+  function renderOverlay(tileFreqMap = null) {
+    overlayCtx.clearRect(0, 0, W, H);
+
+    if (state.showHeatmap) {
+      const freq = tileFreqMap || computeTileData().freqMap;
+      for (const tile of freq.values()) {
+        const alpha = tile.count === 1 ? 0.10 : tile.count <= 3 ? 0.18 : tile.count <= 7 ? 0.26 : tile.count <= 15 ? 0.34 : 0.42;
+        overlayCtx.fillStyle = `rgba(255,64,64,${alpha})`;
+        for (const [tx, ty] of tile.positions) {
+          overlayCtx.fillRect(tx * TILE, ty * TILE, TILE, TILE);
+        }
+      }
+    }
+
+    if (state.showGrid) {
+      overlayCtx.strokeStyle = "rgba(255,255,255,0.18)";
+      overlayCtx.lineWidth = 0.5;
+      overlayCtx.beginPath();
+      for (let x = 0; x <= W; x += TILE) {
+        overlayCtx.moveTo(x + 0.5, 0);
+        overlayCtx.lineTo(x + 0.5, H);
+      }
+      for (let y = 0; y <= H; y += TILE) {
+        overlayCtx.moveTo(0, y + 0.5);
+        overlayCtx.lineTo(W, y + 0.5);
+      }
+      overlayCtx.stroke();
+    }
+  }
+
+  function pixelFromEvent(ev) {
+    const rect = paintCanvas.getBoundingClientRect();
+    let x = Math.floor((ev.clientX - rect.left) * W / rect.width);
+    let y = Math.floor((ev.clientY - rect.top) * H / rect.height);
+    x = Math.max(0, Math.min(W - 1, x));
+    y = Math.max(0, Math.min(H - 1, y));
+    if (state.tileSnap) {
+      x = Math.floor(x / TILE) * TILE;
+      y = Math.floor(y / TILE) * TILE;
+    }
+    return { x, y };
+  }
+
+  function beginStroke() {
+    state.strokeBefore = state.pixels.slice();
+  }
+
+  function endStroke() {
+    if (!state.strokeBefore) return;
+    let changed = false;
+    for (let i = 0; i < state.pixels.length; i++) {
+      if (state.strokeBefore[i] !== state.pixels[i]) { changed = true; break; }
+    }
+    if (changed) {
+      state.undoStack.push(state.strokeBefore);
+      if (state.undoStack.length > MAX_HISTORY) state.undoStack.shift();
+      state.redoStack.length = 0;
+    }
+    state.strokeBefore = null;
+  }
+
+  let lastPoint = null;
+  paintCanvas.addEventListener("pointerdown", (ev) => {
+    const pt = pixelFromEvent(ev);
+
+    if (state.tool === "fill") {
+      beginStroke();
+      if (floodFill(pt.x, pt.y)) renderCanvas();
+      endStroke();
+      return;
+    }
+
+    state.isDrawing = true;
+    beginStroke();
+    drawBrush(pt.x, pt.y);
+    lastPoint = pt;
+    renderCanvas();
+  });
+  window.addEventListener("pointerup", () => {
+    if (!state.isDrawing) return;
+    state.isDrawing = false;
+    lastPoint = null;
+    endStroke();
+  });
+  paintCanvas.addEventListener("pointermove", (ev) => {
+    if (!state.isDrawing) return;
+    const pt = pixelFromEvent(ev);
+    const points = linePoints(lastPoint.x, lastPoint.y, pt.x, pt.y);
+    let changed = false;
+    for (const [x, y] of points) changed = drawBrush(x, y) || changed;
+    if (changed) renderCanvas();
+    lastPoint = pt;
+  });
+
+  function floodFill(startX, startY) {
+    const start = startY * W + startX;
+    const target = state.pixels[start];
+    const replacement = state.selectedColor;
+    if (target === replacement) return false;
+
+    const qx = new Int16Array(W * H);
+    const qy = new Int16Array(W * H);
+    let head = 0, tail = 0;
+    qx[tail] = startX;
+    qy[tail] = startY;
+    tail++;
+    let changed = false;
+
+    while (head < tail) {
+      const x = qx[head];
+      const y = qy[head];
+      head++;
+      const i = y * W + x;
+      if (state.pixels[i] !== target) continue;
+
+      // Fill tool with pattern ON currently uses simple full fill (no transparent-pattern flood fill).
+      state.pixels[i] = replacement;
+      changed = true;
+
+      if (x > 0) { qx[tail] = x - 1; qy[tail] = y; tail++; }
+      if (x < W - 1) { qx[tail] = x + 1; qy[tail] = y; tail++; }
+      if (y > 0) { qx[tail] = x; qy[tail] = y - 1; tail++; }
+      if (y < H - 1) { qx[tail] = x; qy[tail] = y + 1; tail++; }
+    }
+
+    return changed;
+  }
+
+  function undo() {
+    const prev = state.undoStack.pop();
+    if (!prev) return;
+    state.redoStack.push(state.pixels.slice());
+    state.pixels = prev;
+    renderCanvas();
+  }
+  function redo() {
+    const next = state.redoStack.pop();
+    if (!next) return;
+    state.undoStack.push(state.pixels.slice());
+    state.pixels = next;
+    renderCanvas();
+  }
+
+  function encodePixelsBase64() {
+    let s = "";
+    for (let i = 0; i < state.pixels.length; i++) s += String.fromCharCode(state.pixels[i]);
+    return btoa(s);
+  }
+  function decodePixelsBase64(encoded) {
+    const raw = atob(encoded);
+    const arr = new Uint8Array(raw.length);
+    for (let i = 0; i < raw.length; i++) arr[i] = raw.charCodeAt(i);
+    return arr;
+  }
+
+  function saveJSON() {
+    const payload = {
+      version: 1,
+      w: W,
+      h: H,
+      palette,
+      bgIndex,
+      pixels: encodePixelsBase64(),
+      meta: {
+        tool: state.tool,
+        brushSize: state.brushSize,
+        selectedColor: state.selectedColor,
+        patternEnabled: state.patternEnabled,
+        patternType: state.patternType,
+        patternInvert: state.patternInvert,
+      }
+    };
+    const blob = new Blob([JSON.stringify(payload)], { type: "application/json" });
+    downloadBlob(blob, `gbpaint-${Date.now()}.json`);
+  }
+
+  function loadJSONFromText(text) {
+    const data = JSON.parse(text);
+    if (data.w !== W || data.h !== H) throw new Error(`サイズ不一致: ${data.w}x${data.h} (期待: ${W}x${H})`);
+    if (!data.pixels) throw new Error("pixelsがありません");
+    const arr = decodePixelsBase64(data.pixels);
+    if (arr.length !== W * H) throw new Error("pixels長が不正です");
+    state.pixels = arr;
+    state.undoStack.length = 0;
+    state.redoStack.length = 0;
+    renderCanvas();
+  }
+
+  function newCanvas() {
+    if (!confirm("新規作成しますか？未保存の内容は失われます。")) return;
+    state.pixels = new Uint8Array(W * H).fill(bgIndex);
+    state.undoStack.length = 0;
+    state.redoStack.length = 0;
+    renderCanvas();
+  }
+
+  function downloadBlob(blob, name) {
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = name;
+    a.click();
+    URL.revokeObjectURL(a.href);
+  }
+
+  function exportPNGScale(scale) {
+    const out = document.createElement("canvas");
+    out.width = W * scale;
+    out.height = H * scale;
+    const ctx = out.getContext("2d");
+    ctx.imageSmoothingEnabled = false;
+    ctx.drawImage(paintCanvas, 0, 0, out.width, out.height);
+    out.toBlob((blob) => downloadBlob(blob, `gbpaint-${W}x${H}-x${scale}.png`));
+  }
+
+  function exportPNGSquare(size) {
+    const out = document.createElement("canvas");
+    out.width = size;
+    out.height = size;
+    const ctx = out.getContext("2d");
+    ctx.imageSmoothingEnabled = false;
+    ctx.fillStyle = palette[bgIndex];
+    ctx.fillRect(0, 0, size, size);
+    const scale = Math.floor(Math.min(size / W, size / H));
+    const dw = W * scale;
+    const dh = H * scale;
+    const ox = Math.floor((size - dw) / 2);
+    const oy = Math.floor((size - dh) / 2);
+    ctx.drawImage(paintCanvas, 0, 0, dw, dh, ox, oy, dw, dh);
+    out.toBlob((blob) => downloadBlob(blob, `gbpaint-${size}square.png`));
+  }
+
+  function tileKey(tx, ty) {
+    let s = "";
+    for (let y = 0; y < TILE; y++) {
+      for (let x = 0; x < TILE; x++) {
+        s += String.fromCharCode(state.pixels[(ty * TILE + y) * W + (tx * TILE + x)] + 48);
+      }
+    }
+    return s;
+  }
+
+  function computeTileData() {
+    const tilesX = W / TILE;
+    const tilesY = H / TILE;
+    let nonEmpty = 0;
+    const freqMap = new Map();
+
+    for (let ty = 0; ty < tilesY; ty++) {
+      for (let tx = 0; tx < tilesX; tx++) {
+        const key = tileKey(tx, ty);
+        const isEmpty = [...key].every(ch => ch === String.fromCharCode(bgIndex + 48));
+        if (!isEmpty) nonEmpty++;
+        if (!state.includeEmptyTiles && isEmpty) continue;
+        if (!freqMap.has(key)) freqMap.set(key, { count: 0, positions: [] });
+        const rec = freqMap.get(key);
+        rec.count++;
+        rec.positions.push([tx, ty]);
+      }
+    }
+
+    return { nonEmpty, unique: freqMap.size, freqMap };
+  }
+
+  function renderUniqueTileList(freqMap) {
+    uniqueTilesListEl.innerHTML = "";
+    let idx = 0;
+    for (const [key, rec] of freqMap.entries()) {
+      if (idx++ >= 120) break;
+      const item = document.createElement("div");
+      item.className = "tile-item";
+      const c = document.createElement("canvas");
+      c.width = TILE;
+      c.height = TILE;
+      const cctx = c.getContext("2d");
+      const img = cctx.createImageData(TILE, TILE);
+      for (let i = 0; i < key.length; i++) {
+        const p = (key.charCodeAt(i) - 48);
+        const col = palette[p];
+        const r = parseInt(col.slice(1,3),16), g = parseInt(col.slice(3,5),16), b = parseInt(col.slice(5,7),16);
+        const o = i * 4;
+        img.data[o] = r; img.data[o+1] = g; img.data[o+2] = b; img.data[o+3] = 255;
+      }
+      cctx.putImageData(img,0,0);
+      const txt = document.createElement("div");
+      txt.textContent = `出現 ${rec.count}回`;
+      item.append(c, txt);
+      uniqueTilesListEl.append(item);
+    }
+  }
+
+  function updateTileInfo() {
+    const data = computeTileData();
+    tileStatsEl.textContent = `Tiles used: ${data.nonEmpty} / 360 | Unique tiles: ${data.unique} / 192`;
+    tileWarningEl.textContent = data.unique > 192 ? `⚠ Unique tiles exceed GB limit (192): ${data.unique}` : "";
+    renderUniqueTileList(data.freqMap);
+    renderOverlay(data.freqMap);
+  }
+
+  function isTypingTarget(el) {
+    if (!el) return false;
+    const tag = el.tagName;
+    return el.isContentEditable || tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT";
+  }
+
+  function selectColor(idx) {
+    state.selectedColor = idx;
+    [...paletteRow.children].forEach((c, i) => c.style.outline = i === idx ? "2px solid #fff" : "none");
+  }
+
+  function syncUI() {
+    document.getElementById("toolPen").classList.toggle("active", state.tool === "pen");
+    document.getElementById("toolEraser").classList.toggle("active", state.tool === "eraser");
+    document.getElementById("toolFill").classList.toggle("active", state.tool === "fill");
+    brushButtons.forEach((b) => b.classList.toggle("active", Number(b.dataset.size) === state.brushSize));
+    patternEnabledEl.checked = state.patternEnabled;
+    patternTypeEl.value = state.patternType;
+    patternInvertEl.checked = state.patternInvert;
+    gridToggleEl.checked = state.showGrid;
+    tileSnapToggleEl.checked = state.tileSnap;
+    heatmapToggleEl.checked = state.showHeatmap;
+    includeEmptyTilesEl.checked = state.includeEmptyTiles;
+    selectColor(state.selectedColor);
+  }
+
+  function setupUI() {
+    palette.forEach((hex, i) => {
+      const sw = document.createElement("button");
+      sw.className = "swatch";
+      sw.style.background = hex;
+      sw.title = `${i+1}: ${hex}`;
+      sw.addEventListener("click", () => { state.tool = "pen"; selectColor(i); syncUI(); });
+      paletteRow.append(sw);
+
+    });
+
+    document.getElementById("toolPen").addEventListener("click", () => { state.tool = "pen"; syncUI(); });
+    document.getElementById("toolEraser").addEventListener("click", () => { state.tool = "eraser"; syncUI(); });
+    document.getElementById("toolFill").addEventListener("click", () => { state.tool = "fill"; syncUI(); });
+    brushButtons.forEach((b) => b.addEventListener("click", () => { state.brushSize = Number(b.dataset.size); syncUI(); }));
+
+    patternEnabledEl.addEventListener("change", () => { state.patternEnabled = patternEnabledEl.checked; syncUI(); });
+    patternTypeEl.addEventListener("change", () => { state.patternType = patternTypeEl.value; syncUI(); });
+    patternInvertEl.addEventListener("change", () => { state.patternInvert = patternInvertEl.checked; syncUI(); });
+
+    gridToggleEl.addEventListener("change", () => { state.showGrid = gridToggleEl.checked; renderOverlay(); });
+    tileSnapToggleEl.addEventListener("change", () => { state.tileSnap = tileSnapToggleEl.checked; syncUI(); });
+    heatmapToggleEl.addEventListener("change", () => { state.showHeatmap = heatmapToggleEl.checked; renderOverlay(); });
+    includeEmptyTilesEl.addEventListener("change", () => { state.includeEmptyTiles = includeEmptyTilesEl.checked; updateTileInfo(); });
+
+    document.getElementById("newBtn").addEventListener("click", newCanvas);
+    document.getElementById("saveJsonBtn").addEventListener("click", saveJSON);
+    document.getElementById("loadJsonBtn").addEventListener("click", () => document.getElementById("jsonFileInput").click());
+    document.getElementById("jsonFileInput").addEventListener("change", async (ev) => {
+      const file = ev.target.files[0];
+      if (!file) return;
+      try {
+        loadJSONFromText(await file.text());
+      } catch (err) {
+        alert(`JSON読込エラー: ${err.message}`);
+      } finally {
+        ev.target.value = "";
+      }
+    });
+
+    document.querySelectorAll("#pngButtons button").forEach((b) => b.addEventListener("click", () => {
+      const kind = b.dataset.kind;
+      if (kind === "scale") exportPNGScale(Number(b.dataset.scale));
+      if (kind === "square") exportPNGSquare(Number(b.dataset.size));
+    }));
+
+    window.addEventListener("keydown", (ev) => {
+      if (isTypingTarget(document.activeElement)) return;
+      const mod = ev.ctrlKey || ev.metaKey;
+      const key = ev.key.toLowerCase();
+
+      if (mod && key === "z") {
+        ev.preventDefault();
+        if (ev.shiftKey) redo(); else undo();
+        return;
+      }
+      if ((ev.ctrlKey && key === "y")) { ev.preventDefault(); redo(); return; }
+      if (mod && key === "s") { ev.preventDefault(); saveJSON(); return; }
+      if (mod && key === "o") { ev.preventDefault(); document.getElementById("jsonFileInput").click(); return; }
+      if (mod && key === "n") { ev.preventDefault(); newCanvas(); return; }
+      if (mod && key === "e") { ev.preventDefault(); exportPNGScale(1); return; }
+
+      if (key >= "1" && key <= "4") { selectColor(Number(key) - 1); state.tool = "pen"; syncUI(); return; }
+      if (key === "b") { state.tool = "pen"; syncUI(); return; }
+      if (key === "e") { state.tool = "eraser"; syncUI(); return; }
+      if (key === "g" && !ev.shiftKey) { state.tool = "fill"; syncUI(); return; }
+      if (key === "p") { state.patternEnabled = !state.patternEnabled; syncUI(); return; }
+      if (key === "t") { state.tileSnap = !state.tileSnap; syncUI(); return; }
+      if (key === "g" && ev.shiftKey) { state.showGrid = !state.showGrid; syncUI(); renderOverlay(); return; }
+      if (key === "[") { state.brushSize = [1,2,4][Math.max(0, [1,2,4].indexOf(state.brushSize)-1)]; syncUI(); return; }
+      if (key === "]") { state.brushSize = [1,2,4][Math.min(2, [1,2,4].indexOf(state.brushSize)+1)]; syncUI(); return; }
+    });
+
+    window.addEventListener("resize", updateScale);
+    syncUI();
+  }
+
+  setupUI();
+  updateScale();
+  renderCanvas();
+})();
+</script>
+</body>
+</html>
