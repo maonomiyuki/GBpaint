@@ -286,7 +286,9 @@
       const maxOffsetX = -baseLeft;
       state.viewOffsetX = Math.max(minOffsetX, Math.min(maxOffsetX, state.viewOffsetX));
     } else {
-      state.viewOffsetX = 0;
+      const minOffsetX = -baseLeft;
+      const maxOffsetX = baseLeft;
+      state.viewOffsetX = Math.max(minOffsetX, Math.min(maxOffsetX, state.viewOffsetX));
     }
 
     if (scaledH >= viewportH) {
@@ -294,7 +296,9 @@
       const maxOffsetY = -baseTop;
       state.viewOffsetY = Math.max(minOffsetY, Math.min(maxOffsetY, state.viewOffsetY));
     } else {
-      state.viewOffsetY = 0;
+      const minOffsetY = -baseTop;
+      const maxOffsetY = baseTop;
+      state.viewOffsetY = Math.max(minOffsetY, Math.min(maxOffsetY, state.viewOffsetY));
     }
   }
 
@@ -685,7 +689,7 @@
     if (!STR[state.lang]) state.lang = "ja";
 
     PATTERNS.forEach(p => { const opt = document.createElement("option"); opt.value = p.key; opt.textContent = p.label; ui.patternType.append(opt); });
-    palette.forEach((hex, i) => { const b = document.createElement("button"); b.className = "swatch"; b.style.background = hex; b.title = `${i+1}`; b.addEventListener("click", () => { state.tool = "pen"; selectColor(i); syncUI(); }); ui.paletteRow.append(b); });
+    palette.forEach((hex, i) => { const b = document.createElement("button"); b.className = "swatch"; b.style.background = hex; b.title = `${i+1}`; b.addEventListener("click", () => { selectColor(i); syncUI(); }); ui.paletteRow.append(b); });
 
     paintCanvas.addEventListener("pointerdown", (ev) => {
       ev.preventDefault();
@@ -883,7 +887,7 @@
       if (mod && key === "n") { ev.preventDefault(); newCanvas(); return; }
       if (mod && key === "e") { ev.preventDefault(); exportPNGScale(1); return; }
 
-      if (key >= "1" && key <= "4") { selectColor(Number(key) - 1); state.tool = "pen"; syncUI(); return; }
+      if (key >= "1" && key <= "4") { selectColor(Number(key) - 1); syncUI(); return; }
       if (key === "b") { state.tool = "pen"; syncUI(); return; }
       if (key === "e") { state.tool = "eraser"; syncUI(); return; }
       if (key === "g" && !ev.shiftKey) { state.tool = "fill"; syncUI(); return; }
