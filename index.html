@@ -20,9 +20,9 @@
     .meta { font-size:.88rem; opacity:.95; }
     .warn { color:var(--warn); font-weight:700; }
     .workspace { display:grid; place-items:center; padding:12px; overflow:auto; }
-    .canvas-wrap { position:relative; width:fit-content; height:fit-content; box-shadow:0 0 0 1px #444; background:#000; }
-    canvas { image-rendering:pixelated; image-rendering:crisp-edges; display:block; }
-    #overlayCanvas { position:absolute; left:0; top:0; pointer-events:none; }
+    .canvas-wrap { position:relative; width:fit-content; height:fit-content; box-shadow:0 0 0 1px #444; background:#000; touch-action:none; user-select:none; -webkit-user-select:none; -webkit-touch-callout:none; }
+    canvas { image-rendering:pixelated; image-rendering:crisp-edges; display:block; touch-action:none; user-select:none; -webkit-user-select:none; -webkit-touch-callout:none; }
+    #overlayCanvas { position:absolute; left:0; top:0; pointer-events:none; touch-action:none; user-select:none; -webkit-user-select:none; -webkit-touch-callout:none; }
     .header-actions { display:flex; gap:6px; align-items:center; }
     .header-actions button { min-width:44px; min-height:44px; font-size:20px; font-weight:700; padding:0; }
     details summary { cursor:pointer; }
@@ -166,16 +166,13 @@
   };
 
   const PATTERNS = [
-    { key:"d2_25", label:"2x2 25%", kind:"2x2", density:0.25 },
-    { key:"d2_50", label:"2x2 50%", kind:"2x2", density:0.50 },
-    { key:"d2_75", label:"2x2 75%", kind:"2x2", density:0.75 },
-    { key:"d4_125", label:"4x4 12.5%", kind:"4x4", density:0.125 },
-    { key:"d4_25", label:"4x4 25%", kind:"4x4", density:0.25 },
-    { key:"d4_375", label:"4x4 37.5%", kind:"4x4", density:0.375 },
-    { key:"d4_50", label:"4x4 50%", kind:"4x4", density:0.5 },
-    { key:"d4_625", label:"4x4 62.5%", kind:"4x4", density:0.625 },
-    { key:"d4_75", label:"4x4 75%", kind:"4x4", density:0.75 },
-    { key:"d4_875", label:"4x4 87.5%", kind:"4x4", density:0.875 }
+    { key:"d4_125", label:"4x4 12.5%", density:0.125 },
+    { key:"d4_25", label:"4x4 25%", density:0.25 },
+    { key:"d4_375", label:"4x4 37.5%", density:0.375 },
+    { key:"d4_50", label:"4x4 50%", density:0.5 },
+    { key:"d4_625", label:"4x4 62.5%", density:0.625 },
+    { key:"d4_75", label:"4x4 75%", density:0.75 },
+    { key:"d4_875", label:"4x4 87.5%", density:0.875 }
   ];
   const BAYER4 = [
     [0, 8, 2,10],
@@ -186,7 +183,7 @@
 
   const state = {
     pixels: new Uint8Array(W * H).fill(bgIndex), tool:"pen", brushSize:1, selectedColor:0,
-    showGrid:true, tileSnap:false, patternEnabled:false, patternType:"d2_50", patternInvert:false,
+    showGrid:true, tileSnap:false, patternEnabled:false, patternType:"d4_50", patternInvert:false,
     includeEmptyTiles:false, showHeatmap:false, lang: localStorage.getItem("gbpaint_lang") || "ja",
     isDrawing:false, strokeBefore:null, undoStack:[], redoStack:[]
   };
@@ -274,10 +271,6 @@
     const cfg = PATTERNS.find(p => p.key === state.patternType) || PATTERNS[0];
     let density = cfg.density;
     if (state.patternInvert) density = 1 - density;
-    if (cfg.kind === "2x2") {
-      const b2 = [[0,2],[3,1]];
-      return (b2[y % 2][x % 2] / 4) < density;
-    }
     return (BAYER4[y % 4][x % 4] / 16) < density;
   }
 
@@ -486,6 +479,30 @@
     selectColor(state.selectedColor); updateUndoRedoButtons();
   }
 
+  const preventScroll = (ev) => {
+    if (state.isDrawing) ev.preventDefault();
+  };
+
+  function stopDocumentScrollWhileDrawing() {
+    document.addEventListener("touchmove", preventScroll, { passive: false });
+  }
+
+  function allowDocumentScrollAfterDrawing() {
+    document.removeEventListener("touchmove", preventScroll);
+  }
+
+  function finishDrawing(ev) {
+    if (ev) ev.preventDefault();
+    if (ev && paintCanvas.hasPointerCapture && paintCanvas.hasPointerCapture(ev.pointerId)) {
+      try { paintCanvas.releasePointerCapture(ev.pointerId); } catch (_) {}
+    }
+    if (!state.isDrawing) return;
+    state.isDrawing = false;
+    lastPoint = null;
+    allowDocumentScrollAfterDrawing();
+    endStroke();
+  }
+
   let lastPoint = null;
   function setupUI() {
     ui.langSelect.value = STR[state.lang] ? state.lang : "ja";
@@ -495,22 +512,44 @@
     palette.forEach((hex, i) => { const b = document.createElement("button"); b.className = "swatch"; b.style.background = hex; b.title = `${i+1}`; b.addEventListener("click", () => { state.tool = "pen"; selectColor(i); syncUI(); }); ui.paletteRow.append(b); });
 
     paintCanvas.addEventListener("pointerdown", (ev) => {
+      ev.preventDefault();
+      if (ev.pointerType === "mouse" && ev.button !== 0) return;
+      paintCanvas.setPointerCapture(ev.pointerId);
       const pt = getPixelFromPointerEvent(ev);
+
       if (state.tool === "fill") {
         beginStroke();
         if (floodFill(pt.x, pt.y)) renderCanvas();
         endStroke();
+        if (paintCanvas.hasPointerCapture && paintCanvas.hasPointerCapture(ev.pointerId)) {
+          try { paintCanvas.releasePointerCapture(ev.pointerId); } catch (_) {}
+        }
         return;
       }
-      state.isDrawing = true; beginStroke(); drawBrush(pt.x, pt.y); lastPoint = pt; renderCanvas();
-    });
+
+      state.isDrawing = true;
+      stopDocumentScrollWhileDrawing();
+      beginStroke();
+      drawBrush(pt.x, pt.y);
+      lastPoint = pt;
+      renderCanvas();
+    }, { passive: false });
+
     paintCanvas.addEventListener("pointermove", (ev) => {
+      ev.preventDefault();
       if (!state.isDrawing) return;
-      const pt = getPixelFromPointerEvent(ev); const points = linePoints(lastPoint.x, lastPoint.y, pt.x, pt.y);
-      let changed = false; for (const [x,y] of points) changed = drawBrush(x, y) || changed;
-      if (changed) renderCanvas(); lastPoint = pt;
-    });
-    window.addEventListener("pointerup", () => { if (!state.isDrawing) return; state.isDrawing = false; lastPoint = null; endStroke(); });
+      const pt = getPixelFromPointerEvent(ev);
+      const points = linePoints(lastPoint.x, lastPoint.y, pt.x, pt.y);
+      let changed = false;
+      for (const [x,y] of points) changed = drawBrush(x, y) || changed;
+      if (changed) renderCanvas();
+      lastPoint = pt;
+    }, { passive: false });
+
+    paintCanvas.addEventListener("pointerup", finishDrawing, { passive: false });
+    paintCanvas.addEventListener("pointercancel", finishDrawing, { passive: false });
+    paintCanvas.addEventListener("gesturestart", (ev) => ev.preventDefault(), { passive: false });
+    paintCanvas.addEventListener("gesturechange", (ev) => ev.preventDefault(), { passive: false });
 
     document.getElementById("toolPen").addEventListener("click", () => { state.tool = "pen"; syncUI(); });
     document.getElementById("toolEraser").addEventListener("click", () => { state.tool = "eraser"; syncUI(); });
