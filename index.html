@@ -302,8 +302,9 @@
     }
   }
 
-  function applyViewTransform() {
-    clampViewOffset();
+  function applyViewTransform(skipClamp = false) {
+    // viewOffset is top-left position of the canvas in viewport CSS pixels.
+    if (!skipClamp) clampViewOffset();
     const displayScale = state.fitScale * state.viewScale;
     const displayW = W * displayScale;
     const displayH = H * displayScale;
@@ -624,7 +625,7 @@
     state.viewOffsetY = pinchPivot.y - (pinchPivot.y - pinchStartOffsetY) * scaleRatio + panDy;
 
     pinchPrevCentroid = centroid;
-    applyViewTransform();
+    applyViewTransform(true);
     updateScaleBadge();
     renderOverlay();
   }
@@ -777,6 +778,8 @@
         pinchMode = false;
         state.isPinching = false;
         state.isPanning = false;
+        applyViewTransform(false);
+        renderOverlay();
       }
 
       if (ev.pointerId === activeStrokePointerId && state.isDrawing) {
@@ -813,6 +816,8 @@
         pinchMode = false;
         state.isPinching = false;
         state.isPanning = false;
+        applyViewTransform(false);
+        renderOverlay();
       }
       if (ev.pointerId === activeStrokePointerId) {
         finishDrawing(ev);
