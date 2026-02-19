@@ -23,8 +23,8 @@
     .canvas-wrap { position:relative; width:fit-content; height:fit-content; box-shadow:0 0 0 1px #444; background:#000; }
     canvas { image-rendering:pixelated; image-rendering:crisp-edges; display:block; }
     #overlayCanvas { position:absolute; left:0; top:0; pointer-events:none; }
-    .canvas-overlay-ui { position:absolute; left:8px; top:8px; display:flex; gap:6px; z-index:3; pointer-events:auto; }
-    .canvas-overlay-ui button { min-width:44px; min-height:44px; font-size:20px; font-weight:700; padding:0; }
+    .header-actions { display:flex; gap:6px; align-items:center; }
+    .header-actions button { min-width:44px; min-height:44px; font-size:20px; font-weight:700; padding:0; }
     details summary { cursor:pointer; }
     #uniqueTilesList { display:grid; grid-template-columns:repeat(auto-fill,minmax(90px,1fr)); gap:8px; margin-top:8px; }
     .tile-item { background:#262626; border:1px solid #3f3f3f; border-radius:6px; padding:4px; font-size:.75rem; }
@@ -37,13 +37,17 @@
   <aside class="panel">
     <div class="top-row">
       <h1>GB Paint</h1>
-      <label>
-        <span data-i18n="lang">言語</span>
-        <select id="langSelect">
-          <option value="ja">JP</option>
-          <option value="en">EN</option>
-        </select>
-      </label>
+      <div class="header-actions">
+        <button id="undoBtn" title="Undo">↶</button>
+        <button id="redoBtn" title="Redo">↷</button>
+        <label>
+          <span data-i18n="lang">言語</span>
+          <select id="langSelect">
+            <option value="ja">JP</option>
+            <option value="en">EN</option>
+          </select>
+        </label>
+      </div>
     </div>
     <div class="meta" id="subtitle"></div>
 
@@ -115,10 +119,6 @@
 
   <main class="workspace">
     <div class="canvas-wrap" id="canvasWrap">
-      <div class="canvas-overlay-ui">
-        <button id="undoBtn" title="Undo">↶</button>
-        <button id="redoBtn" title="Redo">↷</button>
-      </div>
       <canvas id="paintCanvas" width="160" height="144"></canvas>
       <canvas id="overlayCanvas" width="160" height="144"></canvas>
     </div>
@@ -133,7 +133,7 @@
   const STR = {
     ja: {
       lang: "言語", subtitle: "160x144 / 固定4色 / タイル制約可視化", tools: "ツール", brushSize: "ブラシサイズ", palette: "パレット",
-      pattern: "パターン塗り (P)", enabled: "有効", invert: "反転", display: "表示", grid: "グリッド (Shift+G)", tileSnap: "8x8タイルスナップ (T)",
+      pattern: "パターン塗り (P)", enabled: "有効", invert: "反転", display: "表示", grid: "8x8境界線 (Shift+G)", tileSnap: "8x8タイルスナップ (T)",
       heatmap: "ユニークタイル ヒートマップ", tileStats: "タイル統計", includeEmpty: "空タイルをユニーク数に含める", uniqueList: "ユニークタイル一覧",
       file: "ファイル", png: "PNG書き出し", shortcuts: "ショートカット", pen: "ペン (B)", eraser: "消しゴム (E)", fill: "塗りつぶし (G)",
       newBtn: "新規", saveJson: "JSON保存", loadJson: "JSON読込",
@@ -149,7 +149,7 @@
     },
     en: {
       lang: "Language", subtitle: "160x144 / fixed 4 colors / tile-limit aware", tools: "Tools", brushSize: "Brush Size", palette: "Palette",
-      pattern: "Pattern Paint (P)", enabled: "Enabled", invert: "Invert", display: "Display", grid: "Grid (Shift+G)", tileSnap: "8x8 Tile Snap (T)",
+      pattern: "Pattern Paint (P)", enabled: "Enabled", invert: "Invert", display: "Display", grid: "8x8 Boundaries (Shift+G)", tileSnap: "8x8 Tile Snap (T)",
       heatmap: "Unique Tile Heatmap", tileStats: "Tile Stats", includeEmpty: "Include empty tile in unique count", uniqueList: "Unique Tiles",
       file: "File", png: "PNG Export", shortcuts: "Shortcuts", pen: "Pen (B)", eraser: "Eraser (E)", fill: "Fill (G)",
       newBtn: "New", saveJson: "Save JSON", loadJson: "Load JSON",
@@ -234,6 +234,17 @@
     document.getElementById("shortcuts").innerHTML = `<div>${t("sc1")}</div><div>${t("sc2")}</div><div>${t("sc3")}</div><div>${t("sc4")}</div>`;
   }
 
+  function resizeOverlayCanvas() {
+    const dpr = window.devicePixelRatio || 1;
+    const displayW = paintCanvas.clientWidth || W;
+    const displayH = paintCanvas.clientHeight || H;
+    overlayCanvas.style.width = `${displayW}px`;
+    overlayCanvas.style.height = `${displayH}px`;
+    overlayCanvas.width = Math.max(1, Math.round(displayW * dpr));
+    overlayCanvas.height = Math.max(1, Math.round(displayH * dpr));
+    return { dpr, displayW, displayH, scaleX: displayW / W, scaleY: displayH / H };
+  }
+
   function updateScale() {
     const panel = document.querySelector(".panel");
     const panelW = window.innerWidth > 920 ? panel.offsetWidth : 0;
@@ -242,7 +253,8 @@
     const availH = Math.max(200, window.innerHeight - panelH - 32);
     const scale = Math.max(1, Math.floor(Math.min(availW / W, availH / H)));
     paintCanvas.style.width = `${W * scale}px`; paintCanvas.style.height = `${H * scale}px`;
-    overlayCanvas.style.width = `${W * scale}px`; overlayCanvas.style.height = `${H * scale}px`;
+    resizeOverlayCanvas();
+    renderOverlay();
   }
 
   function getPixelFromPointerEvent(ev) {
@@ -257,8 +269,8 @@
     return { x, y };
   }
 
-  function shouldPaintPatternCell(x, y) {
-    if (!state.patternEnabled || state.tool !== "pen") return true;
+  function patternShouldPaint(x, y) {
+    if (!state.patternEnabled) return true;
     const cfg = PATTERNS.find(p => p.key === state.patternType) || PATTERNS[0];
     let density = cfg.density;
     if (state.patternInvert) density = 1 - density;
@@ -283,7 +295,7 @@
     for (let dy = 0; dy < size; dy++) for (let dx = 0; dx < size; dx++) {
       const x = cx + dx - half, y = cy + dy - half;
       if (x < 0 || y < 0 || x >= W || y >= H) continue;
-      if (!shouldPaintPatternCell(x, y)) continue;
+      if (!patternShouldPaint(x, y)) continue;
       changed = setPixel(x, y, drawColor) || changed;
     }
     return changed;
@@ -300,14 +312,13 @@
   }
 
   function floodFill(startX, startY) {
-    const startIdx = startY * W + startX;
-    const target = state.pixels[startIdx];
+    const target = state.pixels[startY * W + startX];
     const replacement = state.selectedColor;
-    if (target === replacement) return false;
+    if (!state.patternEnabled && target === replacement) return false;
 
     const visited = new Uint8Array(W * H);
     const stack = [[startX, startY]];
-    let changed = false;
+    const region = [];
 
     while (stack.length) {
       const [x, y] = stack.pop();
@@ -315,15 +326,18 @@
       if (visited[i]) continue;
       visited[i] = 1;
       if (state.pixels[i] !== target) continue;
-
-      // Pattern ON for fill currently intentionally ignored for reliability: solid fill only.
-      state.pixels[i] = replacement;
-      changed = true;
+      region.push([x, y]);
 
       if (x > 0) stack.push([x - 1, y]);
       if (x < W - 1) stack.push([x + 1, y]);
       if (y > 0) stack.push([x, y - 1]);
       if (y < H - 1) stack.push([x, y + 1]);
+    }
+
+    let changed = false;
+    for (const [x, y] of region) {
+      if (state.patternEnabled && !patternShouldPaint(x, y)) continue;
+      changed = setPixel(x, y, replacement) || changed;
     }
     return changed;
   }
@@ -353,19 +367,36 @@
   }
 
   function renderOverlay(freqMap = null) {
-    overlayCtx.clearRect(0, 0, W, H);
+    const { dpr, displayW, displayH, scaleX, scaleY } = resizeOverlayCanvas();
+    overlayCtx.setTransform(1, 0, 0, 1, 0, 0);
+    overlayCtx.clearRect(0, 0, overlayCanvas.width, overlayCanvas.height);
+    overlayCtx.scale(dpr, dpr);
+
     if (state.showHeatmap) {
       const freq = freqMap || computeTileData().freqMap;
       for (const tile of freq.values()) {
         const alpha = tile.count === 1 ? 0.10 : tile.count <= 3 ? 0.18 : tile.count <= 7 ? 0.26 : tile.count <= 15 ? 0.34 : 0.42;
         overlayCtx.fillStyle = `rgba(255,64,64,${alpha})`;
-        for (const [tx, ty] of tile.positions) overlayCtx.fillRect(tx * TILE, ty * TILE, TILE, TILE);
+        for (const [tx, ty] of tile.positions) {
+          overlayCtx.fillRect(tx * TILE * scaleX, ty * TILE * scaleY, TILE * scaleX, TILE * scaleY);
+        }
       }
     }
+
     if (state.showGrid) {
-      overlayCtx.strokeStyle = "rgba(255,255,255,0.18)"; overlayCtx.lineWidth = 0.5; overlayCtx.beginPath();
-      for (let x = 0; x <= W; x += TILE) { overlayCtx.moveTo(x + 0.5, 0); overlayCtx.lineTo(x + 0.5, H); }
-      for (let y = 0; y <= H; y += TILE) { overlayCtx.moveTo(0, y + 0.5); overlayCtx.lineTo(W, y + 0.5); }
+      overlayCtx.strokeStyle = "rgba(255,0,0,0.18)";
+      overlayCtx.lineWidth = 1;
+      overlayCtx.beginPath();
+      for (let tx = 0; tx <= W; tx += TILE) {
+        const x = Math.round(tx * scaleX) + 0.5;
+        overlayCtx.moveTo(x, 0);
+        overlayCtx.lineTo(x, displayH);
+      }
+      for (let ty = 0; ty <= H; ty += TILE) {
+        const y = Math.round(ty * scaleY) + 0.5;
+        overlayCtx.moveTo(0, y);
+        overlayCtx.lineTo(displayW, y);
+      }
       overlayCtx.stroke();
     }
   }
