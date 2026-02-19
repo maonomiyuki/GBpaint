@@ -23,8 +23,8 @@
     .canvas-wrap { position:relative; width:fit-content; height:fit-content; box-shadow:0 0 0 1px #444; background:#000; touch-action:none; user-select:none; -webkit-user-select:none; -webkit-touch-callout:none; }
     canvas { image-rendering:pixelated; image-rendering:crisp-edges; display:block; touch-action:none; user-select:none; -webkit-user-select:none; -webkit-touch-callout:none; }
     #overlayCanvas { position:absolute; left:0; top:0; pointer-events:none; touch-action:none; user-select:none; -webkit-user-select:none; -webkit-touch-callout:none; }
-    .header-actions { display:flex; gap:6px; align-items:center; touch-action:manipulation; -webkit-user-select:none; user-select:none; }
-    .header-actions button { min-width:44px; min-height:44px; font-size:20px; font-weight:700; padding:0; touch-action:manipulation; -webkit-user-select:none; user-select:none; }
+    .header-actions { display:flex; gap:6px; align-items:center; touch-action:manipulation; -webkit-user-select:none; user-select:none; pointer-events:auto; }
+    .header-actions button { min-width:44px; min-height:44px; font-size:20px; font-weight:700; padding:0; touch-action:manipulation; -webkit-user-select:none; user-select:none; pointer-events:auto; }
     details summary { cursor:pointer; }
     #uniqueTilesList { display:grid; grid-template-columns:repeat(auto-fill,minmax(90px,1fr)); gap:8px; margin-top:8px; }
     .tile-item { background:#262626; border:1px solid #3f3f3f; border-radius:6px; padding:4px; font-size:.75rem; }
@@ -80,6 +80,7 @@
       <label><input type="checkbox" id="gridToggle" checked /> <span id="gridLabel"></span></label>
       <label><input type="checkbox" id="tileSnapToggle" /> <span id="tileSnapLabel"></span></label>
       <label><input type="checkbox" id="heatmapToggle" /> <span data-i18n="heatmap">ユニークタイル ヒートマップ</span></label>
+      <label><input type="checkbox" id="pencilOnlyToggle" /> <span data-i18n="pencilOnly">Apple Pencilのみ描画</span></label>
     </div>
 
     <h2 data-i18n="tileStats">タイル統計</h2>
@@ -134,7 +135,7 @@
     ja: {
       lang: "言語", subtitle: "160x144 / 固定4色 / タイル制約可視化", tools: "ツール", brushSize: "ブラシサイズ", palette: "パレット",
       pattern: "パターン塗り (P)", enabled: "有効", invert: "反転", display: "表示", grid: "8x8境界線 (Shift+G)", tileSnap: "8x8タイルスナップ (T)",
-      heatmap: "ユニークタイル ヒートマップ", tileStats: "タイル統計", includeEmpty: "空タイルをユニーク数に含める", uniqueList: "ユニークタイル一覧",
+      heatmap: "ユニークタイル ヒートマップ", pencilOnly: "Apple Pencilのみ描画", tileStats: "タイル統計", includeEmpty: "空タイルをユニーク数に含める", uniqueList: "ユニークタイル一覧",
       file: "ファイル", png: "PNG書き出し", shortcuts: "ショートカット", pen: "ペン (B)", eraser: "消しゴム (E)", fill: "塗りつぶし (G)",
       newBtn: "新規", saveJson: "JSON保存", loadJson: "JSON読込",
       tilesUsed: (n) => `Tiles used: ${n} / 360`, uniqueTiles: (n) => `Unique tiles: ${n} / 192`,
@@ -150,7 +151,7 @@
     en: {
       lang: "Language", subtitle: "160x144 / fixed 4 colors / tile-limit aware", tools: "Tools", brushSize: "Brush Size", palette: "Palette",
       pattern: "Pattern Paint (P)", enabled: "Enabled", invert: "Invert", display: "Display", grid: "8x8 Boundaries (Shift+G)", tileSnap: "8x8 Tile Snap (T)",
-      heatmap: "Unique Tile Heatmap", tileStats: "Tile Stats", includeEmpty: "Include empty tile in unique count", uniqueList: "Unique Tiles",
+      heatmap: "Unique Tile Heatmap", pencilOnly: "Draw with Apple Pencil only", tileStats: "Tile Stats", includeEmpty: "Include empty tile in unique count", uniqueList: "Unique Tiles",
       file: "File", png: "PNG Export", shortcuts: "Shortcuts", pen: "Pen (B)", eraser: "Eraser (E)", fill: "Fill (G)",
       newBtn: "New", saveJson: "Save JSON", loadJson: "Load JSON",
       tilesUsed: (n) => `Tiles used: ${n} / 360`, uniqueTiles: (n) => `Unique tiles: ${n} / 192`,
@@ -185,7 +186,9 @@
     pixels: new Uint8Array(W * H).fill(bgIndex), tool:"pen", brushSize:1, selectedColor:0,
     showGrid:true, tileSnap:false, patternEnabled:false, patternType:"d4_50", patternInvert:false,
     includeEmptyTiles:false, showHeatmap:false, lang: localStorage.getItem("gbpaint_lang") || "ja",
-    isDrawing:false, strokeBefore:null, undoStack:[], redoStack:[],
+    pencilOnly: localStorage.getItem("gbpaint_pencil_only") === "1",
+    isPinching:false, isDrawing:false, pendingDraw:false,
+    strokeBefore:null, undoStack:[], redoStack:[],
     fitScale: 1, viewScale: 1, viewOffsetX: 0, viewOffsetY: 0
   };
 
@@ -203,6 +206,7 @@
     gridToggle: document.getElementById("gridToggle"),
     tileSnapToggle: document.getElementById("tileSnapToggle"),
     heatmapToggle: document.getElementById("heatmapToggle"),
+    pencilOnlyToggle: document.getElementById("pencilOnlyToggle"),
     includeEmptyTiles: document.getElementById("includeEmptyTiles"),
     tileStats: document.getElementById("tileStats"),
     tileWarning: document.getElementById("tileWarning"),
@@ -215,6 +219,9 @@
 
   const activePointers = new Map();
   let pinchMode = false;
+  let canvasGestureActive = false;
+  let pendingPointerId = null;
+  let pendingStartPixel = null;
   let pinchStartDist = 0;
   let pinchStartViewScale = 1;
   let pinchStartOffsetX = 0;
@@ -509,7 +516,7 @@
     document.getElementById("toolFill").classList.toggle("active", state.tool === "fill");
     ui.brushButtons.forEach(b => b.classList.toggle("active", Number(b.dataset.size) === state.brushSize));
     ui.patternEnabled.checked = state.patternEnabled; ui.patternType.value = state.patternType; ui.patternInvert.checked = state.patternInvert;
-    ui.gridToggle.checked = state.showGrid; ui.tileSnapToggle.checked = state.tileSnap; ui.heatmapToggle.checked = state.showHeatmap; ui.includeEmptyTiles.checked = state.includeEmptyTiles;
+    ui.gridToggle.checked = state.showGrid; ui.tileSnapToggle.checked = state.tileSnap; ui.heatmapToggle.checked = state.showHeatmap; ui.pencilOnlyToggle.checked = state.pencilOnly; ui.includeEmptyTiles.checked = state.includeEmptyTiles;
     selectColor(state.selectedColor); updateUndoRedoButtons();
   }
 
@@ -527,6 +534,11 @@
     const pts = [...activePointers.values()];
     if (pts.length < 2) return;
     pinchMode = true;
+    state.isPinching = true;
+    state.pendingDraw = false;
+    pendingPointerId = null;
+    pendingStartPixel = null;
+    updateCanvasGestureBlock();
     const a = pts[0], b = pts[1];
     pinchStartDist = Math.max(1, getPointerDistance(a, b));
     pinchStartViewScale = state.viewScale;
@@ -539,7 +551,6 @@
     if (state.isDrawing) {
       state.isDrawing = false;
       lastPoint = null;
-      allowDocumentScrollAfterDrawing();
       endStroke();
     }
     activeDown = null;
@@ -570,7 +581,7 @@
 
   function tryRegisterTap(ev) {
     if (state.tool === "fill") return;
-    if (!activeDown || activeDown.moved || activeDown.pointerType === "mouse") return;
+    if (!activeDown || activeDown.moved || activeDown.pointerType === "mouse" || state.isPinching) return;
     const dt = performance.now() - activeDown.time;
     if (dt > TAP_MAX_MS) return;
 
@@ -588,28 +599,38 @@
     }
   }
 
+
+  function canDrawWithPointerType(pointerType) {
+    if (!state.pencilOnly) return true;
+    return pointerType === "pen" || pointerType === "mouse";
+  }
+
+  function updateCanvasGestureBlock() {
+    const shouldBlock = state.isDrawing || state.pendingDraw || state.isPinching;
+    if (shouldBlock && !canvasGestureActive) {
+      canvasGestureActive = true;
+      document.addEventListener("touchmove", preventScroll, { passive: false });
+    } else if (!shouldBlock && canvasGestureActive) {
+      canvasGestureActive = false;
+      document.removeEventListener("touchmove", preventScroll);
+    }
+  }
+
   const preventScroll = (ev) => {
-    if (state.isDrawing) ev.preventDefault();
+    if (canvasGestureActive) ev.preventDefault();
   };
 
-  function stopDocumentScrollWhileDrawing() {
-    document.addEventListener("touchmove", preventScroll, { passive: false });
-  }
-
-  function allowDocumentScrollAfterDrawing() {
-    document.removeEventListener("touchmove", preventScroll);
-  }
 
   function finishDrawing(ev) {
     if (ev) ev.preventDefault();
     if (ev && paintCanvas.hasPointerCapture && paintCanvas.hasPointerCapture(ev.pointerId)) {
       try { paintCanvas.releasePointerCapture(ev.pointerId); } catch (_) {}
     }
-    if (!state.isDrawing) return;
+    if (!state.isDrawing) { updateCanvasGestureBlock(); return; }
     state.isDrawing = false;
     lastPoint = null;
-    allowDocumentScrollAfterDrawing();
     endStroke();
+    updateCanvasGestureBlock();
   }
 
   let lastPoint = null;
@@ -623,37 +644,31 @@
     paintCanvas.addEventListener("pointerdown", (ev) => {
       ev.preventDefault();
       if (ev.pointerType === "mouse" && ev.button !== 0) return;
+
       activePointers.set(ev.pointerId, { clientX: ev.clientX, clientY: ev.clientY, pointerType: ev.pointerType });
       paintCanvas.setPointerCapture(ev.pointerId);
+
+      activeDown = { x: ev.clientX, y: ev.clientY, time: performance.now(), moved: false, pointerType: ev.pointerType };
 
       if (activePointers.size >= 2) {
         beginPinch();
         return;
       }
 
-      activeStrokePointerId = ev.pointerId;
-      activeDown = { x: ev.clientX, y: ev.clientY, time: performance.now(), moved: false, pointerType: ev.pointerType };
-      const pt = getPixelFromPointerEvent(ev);
-
-      if (state.tool === "fill") {
-        beginStroke();
-        if (floodFill(pt.x, pt.y)) renderCanvas();
-        endStroke();
-        tryRegisterTap(ev);
-        if (paintCanvas.hasPointerCapture && paintCanvas.hasPointerCapture(ev.pointerId)) {
-          try { paintCanvas.releasePointerCapture(ev.pointerId); } catch (_) {}
-        }
-        activePointers.delete(ev.pointerId);
-        activeDown = null;
+      if (!canDrawWithPointerType(ev.pointerType)) {
+        state.pendingDraw = false;
+        pendingPointerId = null;
+        pendingStartPixel = null;
+        updateCanvasGestureBlock();
         return;
       }
 
-      state.isDrawing = true;
-      stopDocumentScrollWhileDrawing();
-      beginStroke();
-      drawBrush(pt.x, pt.y);
-      lastPoint = pt;
-      renderCanvas();
+      const pt = getPixelFromPointerEvent(ev);
+      activeStrokePointerId = ev.pointerId;
+      state.pendingDraw = true;
+      pendingPointerId = ev.pointerId;
+      pendingStartPixel = pt;
+      updateCanvasGestureBlock();
     }, { passive: false });
 
     paintCanvas.addEventListener("pointermove", (ev) => {
@@ -672,6 +687,30 @@
         activeDown.moved = true;
       }
 
+      if (state.pendingDraw && ev.pointerId === pendingPointerId) {
+        const moved = Math.hypot(ev.clientX - activeDown.x, ev.clientY - activeDown.y) > 3;
+        if (moved) {
+          if (state.tool !== "fill") {
+            state.pendingDraw = false;
+            state.isDrawing = true;
+            beginStroke();
+            drawBrush(pendingStartPixel.x, pendingStartPixel.y);
+            const pt = getPixelFromPointerEvent(ev);
+            const pts = linePoints(pendingStartPixel.x, pendingStartPixel.y, pt.x, pt.y);
+            let changed = false;
+            for (const [x, y] of pts) changed = drawBrush(x, y) || changed;
+            if (changed) renderCanvas();
+            lastPoint = pt;
+            updateCanvasGestureBlock();
+          } else {
+            state.pendingDraw = false;
+            pendingPointerId = null;
+            pendingStartPixel = null;
+            updateCanvasGestureBlock();
+          }
+        }
+      }
+
       if (!state.isDrawing || ev.pointerId !== activeStrokePointerId) return;
       const pt = getPixelFromPointerEvent(ev);
       const points = linePoints(lastPoint.x, lastPoint.y, pt.x, pt.y);
@@ -684,24 +723,56 @@
     paintCanvas.addEventListener("pointerup", (ev) => {
       ev.preventDefault();
       activePointers.delete(ev.pointerId);
-      if (pinchMode && activePointers.size < 2) pinchMode = false;
-      if (ev.pointerId === activeStrokePointerId) {
-        finishDrawing(ev);
-        tryRegisterTap(ev);
-        activeStrokePointerId = null;
-        activeDown = null;
+      if (pinchMode && activePointers.size < 2) {
+        pinchMode = false;
+        state.isPinching = false;
       }
+
+      if (ev.pointerId === activeStrokePointerId && state.isDrawing) {
+        finishDrawing(ev);
+      } else if (state.pendingDraw && ev.pointerId === pendingPointerId) {
+        const pt = pendingStartPixel || getPixelFromPointerEvent(ev);
+        state.pendingDraw = false;
+        if (state.tool === "fill" && canDrawWithPointerType(ev.pointerType)) {
+          beginStroke();
+          if (floodFill(pt.x, pt.y)) renderCanvas();
+          endStroke();
+        }
+      }
+
+      tryRegisterTap(ev);
+
+      if (paintCanvas.hasPointerCapture && paintCanvas.hasPointerCapture(ev.pointerId)) {
+        try { paintCanvas.releasePointerCapture(ev.pointerId); } catch (_) {}
+      }
+
+      if (ev.pointerId === activeStrokePointerId) activeStrokePointerId = null;
+      if (ev.pointerId === pendingPointerId) {
+        pendingPointerId = null;
+        pendingStartPixel = null;
+      }
+      activeDown = null;
+      updateCanvasGestureBlock();
     }, { passive: false });
 
     paintCanvas.addEventListener("pointercancel", (ev) => {
       ev.preventDefault();
       activePointers.delete(ev.pointerId);
-      if (pinchMode && activePointers.size < 2) pinchMode = false;
+      if (pinchMode && activePointers.size < 2) {
+        pinchMode = false;
+        state.isPinching = false;
+      }
       if (ev.pointerId === activeStrokePointerId) {
         finishDrawing(ev);
         activeStrokePointerId = null;
       }
+      if (ev.pointerId === pendingPointerId) {
+        state.pendingDraw = false;
+        pendingPointerId = null;
+        pendingStartPixel = null;
+      }
       activeDown = null;
+      updateCanvasGestureBlock();
     }, { passive: false });
 
     paintCanvas.addEventListener("gesturestart", (ev) => ev.preventDefault(), { passive: false });
@@ -718,6 +789,7 @@
     ui.gridToggle.addEventListener("change", () => { state.showGrid = ui.gridToggle.checked; renderOverlay(); });
     ui.tileSnapToggle.addEventListener("change", () => { state.tileSnap = ui.tileSnapToggle.checked; syncUI(); });
     ui.heatmapToggle.addEventListener("change", () => { state.showHeatmap = ui.heatmapToggle.checked; renderOverlay(); });
+    ui.pencilOnlyToggle.addEventListener("change", () => { state.pencilOnly = ui.pencilOnlyToggle.checked; localStorage.setItem("gbpaint_pencil_only", state.pencilOnly ? "1" : "0"); syncUI(); });
     ui.includeEmptyTiles.addEventListener("change", () => { state.includeEmptyTiles = ui.includeEmptyTiles.checked; updateTileInfo(); });
 
     document.getElementById("newBtn").addEventListener("click", newCanvas);
@@ -735,13 +807,13 @@
       else exportPNGSquare(Number(b.dataset.size));
     }));
 
-    const preventButtonGesture = (ev) => ev.preventDefault();
-    [ui.undoBtn, ui.redoBtn].forEach((btn) => {
-      btn.addEventListener("pointerdown", preventButtonGesture, { passive: false });
-      btn.addEventListener("touchend", preventButtonGesture, { passive: false });
-    });
-    ui.undoBtn.addEventListener("click", undo);
-    ui.redoBtn.addEventListener("click", redo);
+    const bindHeaderAction = (btn, action) => {
+      btn.addEventListener("pointerdown", (ev) => ev.preventDefault(), { passive: false });
+      btn.addEventListener("touchend", (ev) => ev.preventDefault(), { passive: false });
+      btn.addEventListener("pointerup", (ev) => { ev.preventDefault(); action(); }, { passive: false });
+    };
+    bindHeaderAction(ui.undoBtn, undo);
+    bindHeaderAction(ui.redoBtn, redo);
 
     ui.langSelect.addEventListener("change", () => {
       state.lang = ui.langSelect.value;
