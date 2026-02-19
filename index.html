@@ -19,8 +19,8 @@
     .swatch { width:28px; height:28px; border:2px solid #000; border-radius:4px; cursor:pointer; }
     .meta { font-size:.88rem; opacity:.95; }
     .warn { color:var(--warn); font-weight:700; }
-    .workspace { display:grid; place-items:center; padding:12px; overflow:auto; }
-    .canvas-wrap { position:relative; width:fit-content; height:fit-content; box-shadow:0 0 0 1px #444; background:#000; touch-action:none; user-select:none; -webkit-user-select:none; -webkit-touch-callout:none; }
+    .workspace { position:relative; padding:12px; overflow:hidden; }
+    .canvas-wrap { position:absolute; left:0; top:0; width:fit-content; height:fit-content; box-shadow:0 0 0 1px #444; background:#000; touch-action:none; user-select:none; -webkit-user-select:none; -webkit-touch-callout:none; }
     canvas { image-rendering:pixelated; image-rendering:crisp-edges; display:block; touch-action:none; user-select:none; -webkit-user-select:none; -webkit-touch-callout:none; }
     #overlayCanvas { position:absolute; left:0; top:0; pointer-events:none; touch-action:none; user-select:none; -webkit-user-select:none; -webkit-touch-callout:none; }
     .header-actions { display:flex; gap:6px; align-items:center; touch-action:manipulation; -webkit-user-select:none; user-select:none; pointer-events:auto; }
@@ -224,13 +224,7 @@
   let canvasGestureActive = false;
   let pendingPointerId = null;
   let pendingStartPixel = null;
-  let pinchStartDist = 0;
-  let pinchStartViewScale = 1;
-  let pinchStartOffsetX = 0;
-  let pinchStartOffsetY = 0;
-  let pinchStartTopLeft = { x: 0, y: 0 };
-  let pinchPivot = { x: 0, y: 0 };
-  let pinchStartCentroid = { x: 0, y: 0 };
+  let pinchPrevDist = 0;
   let pinchPrevCentroid = { x: 0, y: 0 };
   const MIN_VIEW_SCALE = 0.5;
   const MAX_VIEW_SCALE = 16;
@@ -278,28 +272,13 @@
     const scaledW = W * state.fitScale * state.viewScale;
     const scaledH = H * state.fitScale * state.viewScale;
 
-    const baseLeft = (viewportW - scaledW) / 2;
-    const baseTop = (viewportH - scaledH) / 2;
+    const minX = scaledW >= viewportW ? (viewportW - scaledW) : 0;
+    const maxX = scaledW >= viewportW ? 0 : (viewportW - scaledW);
+    const minY = scaledH >= viewportH ? (viewportH - scaledH) : 0;
+    const maxY = scaledH >= viewportH ? 0 : (viewportH - scaledH);
 
-    if (scaledW >= viewportW) {
-      const minOffsetX = baseLeft;
-      const maxOffsetX = -baseLeft;
-      state.viewOffsetX = Math.max(minOffsetX, Math.min(maxOffsetX, state.viewOffsetX));
-    } else {
-      const minOffsetX = -baseLeft;
-      const maxOffsetX = baseLeft;
-      state.viewOffsetX = Math.max(minOffsetX, Math.min(maxOffsetX, state.viewOffsetX));
-    }
-
-    if (scaledH >= viewportH) {
-      const minOffsetY = baseTop;
-      const maxOffsetY = -baseTop;
-      state.viewOffsetY = Math.max(minOffsetY, Math.min(maxOffsetY, state.viewOffsetY));
-    } else {
-      const minOffsetY = -baseTop;
-      const maxOffsetY = baseTop;
-      state.viewOffsetY = Math.max(minOffsetY, Math.min(maxOffsetY, state.viewOffsetY));
-    }
+    state.viewOffsetX = Math.max(minX, Math.min(maxX, state.viewOffsetX));
+    state.viewOffsetY = Math.max(minY, Math.min(maxY, state.viewOffsetY));
   }
 
   function applyViewTransform(skipClamp = false) {
@@ -311,14 +290,16 @@
     paintCanvas.style.width = `${displayW}px`;
     paintCanvas.style.height = `${displayH}px`;
     const wrap = document.getElementById("canvasWrap");
-    wrap.style.transform = `translate(${state.viewOffsetX}px, ${state.viewOffsetY}px)`;
+    wrap.style.left = `${state.viewOffsetX}px`;
+    wrap.style.top = `${state.viewOffsetY}px`;
     resizeOverlayCanvas();
   }
 
   function resetViewTransform() {
     state.viewScale = 1;
-    state.viewOffsetX = 0;
-    state.viewOffsetY = 0;
+    const workspace = document.querySelector(".workspace");
+    state.viewOffsetX = Math.max(0, (workspace.clientWidth - W * state.fitScale) / 2);
+    state.viewOffsetY = Math.max(0, (workspace.clientHeight - H * state.fitScale) / 2);
     state.isPanning = false;
     applyViewTransform();
     updateScaleBadge();
@@ -337,6 +318,11 @@
     const availW = Math.max(200, window.innerWidth - panelW - 32);
     const availH = Math.max(200, window.innerHeight - panelH - 32);
     state.fitScale = Math.max(1, Math.floor(Math.min(availW / W, availH / H)));
+    if (state.viewOffsetX === 0 && state.viewOffsetY === 0 && state.viewScale === 1) {
+      const workspace = document.querySelector(".workspace");
+      state.viewOffsetX = Math.max(0, (workspace.clientWidth - W * state.fitScale) / 2);
+      state.viewOffsetY = Math.max(0, (workspace.clientHeight - H * state.fitScale) / 2);
+    }
     applyViewTransform();
     updateScaleBadge();
     renderOverlay();
@@ -586,16 +572,12 @@
     pendingPointerId = null;
     pendingStartPixel = null;
     updateCanvasGestureBlock();
+
     const a = pts[0], b = pts[1];
-    pinchStartDist = Math.max(1, getPointerDistance(a, b));
-    pinchStartViewScale = state.viewScale;
-    pinchStartOffsetX = state.viewOffsetX;
-    pinchStartOffsetY = state.viewOffsetY;
-    pinchPivot = getPointerMid(a, b);
-    pinchStartCentroid = pinchPivot;
-    pinchPrevCentroid = pinchPivot;
-    const rect = paintCanvas.getBoundingClientRect();
-    pinchStartTopLeft = { x: rect.left, y: rect.top };
+    pinchPrevDist = Math.max(1, getPointerDistance(a, b));
+    const workspaceRect = document.querySelector(".workspace").getBoundingClientRect();
+    const c = getPointerMid(a, b);
+    pinchPrevCentroid = { x: c.x - workspaceRect.left, y: c.y - workspaceRect.top };
 
     if (state.isDrawing) {
       state.isDrawing = false;
@@ -609,22 +591,28 @@
     const pts = [...activePointers.values()];
     if (pts.length < 2) return;
     const a = pts[0], b = pts[1];
-    const centroid = getPointerMid(a, b);
+    const workspaceRect = document.querySelector(".workspace").getBoundingClientRect();
+    const centroidScreen = getPointerMid(a, b);
+    const centroidX = centroidScreen.x - workspaceRect.left;
+    const centroidY = centroidScreen.y - workspaceRect.top;
     const dist = Math.max(1, getPointerDistance(a, b));
 
-    const ratio = dist / pinchStartDist;
-    const nextViewScale = Math.max(MIN_VIEW_SCALE, Math.min(MAX_VIEW_SCALE, pinchStartViewScale * ratio));
-    const scaleRatio = nextViewScale / pinchStartViewScale;
+    const scaleFactor = dist / Math.max(1, pinchPrevDist);
+    const newScale = Math.max(MIN_VIEW_SCALE, Math.min(MAX_VIEW_SCALE, state.viewScale * scaleFactor));
 
-    const panDx = centroid.x - pinchStartCentroid.x;
-    const panDy = centroid.y - pinchStartCentroid.y;
-    state.isPanning = Math.abs(centroid.x - pinchPrevCentroid.x) > 0.1 || Math.abs(centroid.y - pinchPrevCentroid.y) > 0.1;
+    const oldEffective = state.fitScale * state.viewScale;
+    const anchorCanvasX = (centroidX - state.viewOffsetX) / oldEffective;
+    const anchorCanvasY = (centroidY - state.viewOffsetY) / oldEffective;
 
-    state.viewScale = nextViewScale;
-    state.viewOffsetX = pinchPivot.x - (pinchPivot.x - pinchStartOffsetX) * scaleRatio + panDx;
-    state.viewOffsetY = pinchPivot.y - (pinchPivot.y - pinchStartOffsetY) * scaleRatio + panDy;
+    state.viewScale = newScale;
+    const newEffective = state.fitScale * state.viewScale;
+    state.viewOffsetX = centroidX - anchorCanvasX * newEffective;
+    state.viewOffsetY = centroidY - anchorCanvasY * newEffective;
 
-    pinchPrevCentroid = centroid;
+    state.isPanning = Math.abs(centroidX - pinchPrevCentroid.x) > 0.1 || Math.abs(centroidY - pinchPrevCentroid.y) > 0.1;
+    pinchPrevCentroid = { x: centroidX, y: centroidY };
+    pinchPrevDist = dist;
+
     applyViewTransform(true);
     updateScaleBadge();
     renderOverlay();
