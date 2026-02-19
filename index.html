@@ -81,6 +81,7 @@
       <label><input type="checkbox" id="tileSnapToggle" /> <span id="tileSnapLabel"></span></label>
       <label><input type="checkbox" id="heatmapToggle" /> <span data-i18n="heatmap">ユニークタイル ヒートマップ</span></label>
       <label><input type="checkbox" id="pencilOnlyToggle" /> <span data-i18n="pencilOnly">Apple Pencilのみ描画</span></label>
+      <button id="resetViewBtn" data-i18n="resetView">表示をリセット (R)</button>
     </div>
 
     <h2 data-i18n="tileStats">タイル統計</h2>
@@ -135,7 +136,7 @@
     ja: {
       lang: "言語", subtitle: "160x144 / 固定4色 / タイル制約可視化", tools: "ツール", brushSize: "ブラシサイズ", palette: "パレット",
       pattern: "パターン塗り (P)", enabled: "有効", invert: "反転", display: "表示", grid: "8x8境界線 (Shift+G)", tileSnap: "8x8タイルスナップ (T)",
-      heatmap: "ユニークタイル ヒートマップ", pencilOnly: "Apple Pencilのみ描画", tileStats: "タイル統計", includeEmpty: "空タイルをユニーク数に含める", uniqueList: "ユニークタイル一覧",
+      heatmap: "ユニークタイル ヒートマップ", pencilOnly: "Apple Pencilのみ描画", resetView: "表示をリセット (R)", tileStats: "タイル統計", includeEmpty: "空タイルをユニーク数に含める", uniqueList: "ユニークタイル一覧",
       file: "ファイル", png: "PNG書き出し", shortcuts: "ショートカット", pen: "ペン (B)", eraser: "消しゴム (E)", fill: "塗りつぶし (G)",
       newBtn: "新規", saveJson: "JSON保存", loadJson: "JSON読込",
       tilesUsed: (n) => `Tiles used: ${n} / 360`, uniqueTiles: (n) => `Unique tiles: ${n} / 192`,
@@ -151,7 +152,7 @@
     en: {
       lang: "Language", subtitle: "160x144 / fixed 4 colors / tile-limit aware", tools: "Tools", brushSize: "Brush Size", palette: "Palette",
       pattern: "Pattern Paint (P)", enabled: "Enabled", invert: "Invert", display: "Display", grid: "8x8 Boundaries (Shift+G)", tileSnap: "8x8 Tile Snap (T)",
-      heatmap: "Unique Tile Heatmap", pencilOnly: "Draw with Apple Pencil only", tileStats: "Tile Stats", includeEmpty: "Include empty tile in unique count", uniqueList: "Unique Tiles",
+      heatmap: "Unique Tile Heatmap", pencilOnly: "Draw with Apple Pencil only", resetView: "Reset View (R)", tileStats: "Tile Stats", includeEmpty: "Include empty tile in unique count", uniqueList: "Unique Tiles",
       file: "File", png: "PNG Export", shortcuts: "Shortcuts", pen: "Pen (B)", eraser: "Eraser (E)", fill: "Fill (G)",
       newBtn: "New", saveJson: "Save JSON", loadJson: "Load JSON",
       tilesUsed: (n) => `Tiles used: ${n} / 360`, uniqueTiles: (n) => `Unique tiles: ${n} / 192`,
@@ -187,7 +188,7 @@
     showGrid:true, tileSnap:false, patternEnabled:false, patternType:"d4_50", patternInvert:false,
     includeEmptyTiles:false, showHeatmap:false, lang: localStorage.getItem("gbpaint_lang") || "ja",
     pencilOnly: localStorage.getItem("gbpaint_pencil_only") === "1",
-    isPinching:false, isDrawing:false, pendingDraw:false,
+    isPinching:false, isPanning:false, isDrawing:false, pendingDraw:false,
     strokeBefore:null, undoStack:[], redoStack:[],
     fitScale: 1, viewScale: 1, viewOffsetX: 0, viewOffsetY: 0
   };
@@ -207,6 +208,7 @@
     tileSnapToggle: document.getElementById("tileSnapToggle"),
     heatmapToggle: document.getElementById("heatmapToggle"),
     pencilOnlyToggle: document.getElementById("pencilOnlyToggle"),
+    resetViewBtn: document.getElementById("resetViewBtn"),
     includeEmptyTiles: document.getElementById("includeEmptyTiles"),
     tileStats: document.getElementById("tileStats"),
     tileWarning: document.getElementById("tileWarning"),
@@ -228,7 +230,9 @@
   let pinchStartOffsetY = 0;
   let pinchStartTopLeft = { x: 0, y: 0 };
   let pinchPivot = { x: 0, y: 0 };
-  const MIN_VIEW_SCALE = 1;
+  let pinchStartCentroid = { x: 0, y: 0 };
+  let pinchPrevCentroid = { x: 0, y: 0 };
+  const MIN_VIEW_SCALE = 0.5;
   const MAX_VIEW_SCALE = 16;
   const TAP_MAX_MS = 320;
   const TAP_MAX_MOVE = 12;
@@ -267,7 +271,35 @@
     return { dpr, displayW, displayH, scaleX: displayW / W, scaleY: displayH / H };
   }
 
+  function clampViewOffset() {
+    const workspace = document.querySelector(".workspace");
+    const viewportW = workspace.clientWidth;
+    const viewportH = workspace.clientHeight;
+    const scaledW = W * state.fitScale * state.viewScale;
+    const scaledH = H * state.fitScale * state.viewScale;
+
+    const baseLeft = (viewportW - scaledW) / 2;
+    const baseTop = (viewportH - scaledH) / 2;
+
+    if (scaledW >= viewportW) {
+      const minOffsetX = baseLeft;
+      const maxOffsetX = -baseLeft;
+      state.viewOffsetX = Math.max(minOffsetX, Math.min(maxOffsetX, state.viewOffsetX));
+    } else {
+      state.viewOffsetX = 0;
+    }
+
+    if (scaledH >= viewportH) {
+      const minOffsetY = baseTop;
+      const maxOffsetY = -baseTop;
+      state.viewOffsetY = Math.max(minOffsetY, Math.min(maxOffsetY, state.viewOffsetY));
+    } else {
+      state.viewOffsetY = 0;
+    }
+  }
+
   function applyViewTransform() {
+    clampViewOffset();
     const displayScale = state.fitScale * state.viewScale;
     const displayW = W * displayScale;
     const displayH = H * displayScale;
@@ -276,6 +308,16 @@
     const wrap = document.getElementById("canvasWrap");
     wrap.style.transform = `translate(${state.viewOffsetX}px, ${state.viewOffsetY}px)`;
     resizeOverlayCanvas();
+  }
+
+  function resetViewTransform() {
+    state.viewScale = 1;
+    state.viewOffsetX = 0;
+    state.viewOffsetY = 0;
+    state.isPanning = false;
+    applyViewTransform();
+    updateScaleBadge();
+    renderOverlay();
   }
 
   function updateScaleBadge() {
@@ -545,6 +587,8 @@
     pinchStartOffsetX = state.viewOffsetX;
     pinchStartOffsetY = state.viewOffsetY;
     pinchPivot = getPointerMid(a, b);
+    pinchStartCentroid = pinchPivot;
+    pinchPrevCentroid = pinchPivot;
     const rect = paintCanvas.getBoundingClientRect();
     pinchStartTopLeft = { x: rect.left, y: rect.top };
 
@@ -560,20 +604,22 @@
     const pts = [...activePointers.values()];
     if (pts.length < 2) return;
     const a = pts[0], b = pts[1];
+    const centroid = getPointerMid(a, b);
     const dist = Math.max(1, getPointerDistance(a, b));
+
     const ratio = dist / pinchStartDist;
     const nextViewScale = Math.max(MIN_VIEW_SCALE, Math.min(MAX_VIEW_SCALE, pinchStartViewScale * ratio));
-    const total0 = state.fitScale * pinchStartViewScale;
-    const total1 = state.fitScale * nextViewScale;
+    const scaleRatio = nextViewScale / pinchStartViewScale;
 
-    const worldX = (pinchPivot.x - pinchStartTopLeft.x) / total0;
-    const worldY = (pinchPivot.y - pinchStartTopLeft.y) / total0;
-    const desiredLeft = pinchPivot.x - worldX * total1;
-    const desiredTop = pinchPivot.y - worldY * total1;
+    const panDx = centroid.x - pinchStartCentroid.x;
+    const panDy = centroid.y - pinchStartCentroid.y;
+    state.isPanning = Math.abs(centroid.x - pinchPrevCentroid.x) > 0.1 || Math.abs(centroid.y - pinchPrevCentroid.y) > 0.1;
 
     state.viewScale = nextViewScale;
-    state.viewOffsetX = pinchStartOffsetX + (desiredLeft - pinchStartTopLeft.x);
-    state.viewOffsetY = pinchStartOffsetY + (desiredTop - pinchStartTopLeft.y);
+    state.viewOffsetX = pinchPivot.x - (pinchPivot.x - pinchStartOffsetX) * scaleRatio + panDx;
+    state.viewOffsetY = pinchPivot.y - (pinchPivot.y - pinchStartOffsetY) * scaleRatio + panDy;
+
+    pinchPrevCentroid = centroid;
     applyViewTransform();
     updateScaleBadge();
     renderOverlay();
@@ -726,6 +772,7 @@
       if (pinchMode && activePointers.size < 2) {
         pinchMode = false;
         state.isPinching = false;
+        state.isPanning = false;
       }
 
       if (ev.pointerId === activeStrokePointerId && state.isDrawing) {
@@ -761,6 +808,7 @@
       if (pinchMode && activePointers.size < 2) {
         pinchMode = false;
         state.isPinching = false;
+        state.isPanning = false;
       }
       if (ev.pointerId === activeStrokePointerId) {
         finishDrawing(ev);
@@ -790,6 +838,7 @@
     ui.tileSnapToggle.addEventListener("change", () => { state.tileSnap = ui.tileSnapToggle.checked; syncUI(); });
     ui.heatmapToggle.addEventListener("change", () => { state.showHeatmap = ui.heatmapToggle.checked; renderOverlay(); });
     ui.pencilOnlyToggle.addEventListener("change", () => { state.pencilOnly = ui.pencilOnlyToggle.checked; localStorage.setItem("gbpaint_pencil_only", state.pencilOnly ? "1" : "0"); syncUI(); });
+    ui.resetViewBtn.addEventListener("click", resetViewTransform);
     ui.includeEmptyTiles.addEventListener("change", () => { state.includeEmptyTiles = ui.includeEmptyTiles.checked; updateTileInfo(); });
 
     document.getElementById("newBtn").addEventListener("click", newCanvas);
@@ -841,6 +890,7 @@
       if (key === "p") { state.patternEnabled = !state.patternEnabled; syncUI(); return; }
       if (key === "t") { state.tileSnap = !state.tileSnap; syncUI(); return; }
       if (key === "g" && ev.shiftKey) { state.showGrid = !state.showGrid; syncUI(); renderOverlay(); return; }
+      if (key === "r") { resetViewTransform(); return; }
       if (key === "[") { state.brushSize = [1,2,4][Math.max(0, [1,2,4].indexOf(state.brushSize)-1)]; syncUI(); return; }
       if (key === "]") { state.brushSize = [1,2,4][Math.min(2, [1,2,4].indexOf(state.brushSize)+1)]; syncUI(); return; }
     });
