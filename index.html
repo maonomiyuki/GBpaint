@@ -597,6 +597,13 @@
     const centroidY = centroidScreen.y - workspaceRect.top;
     const dist = Math.max(1, getPointerDistance(a, b));
 
+    // 1) pan by centroid delta every frame.
+    const dx = centroidX - pinchPrevCentroid.x;
+    const dy = centroidY - pinchPrevCentroid.y;
+    state.viewOffsetX += dx;
+    state.viewOffsetY += dy;
+
+    // 2) zoom around current centroid using the post-pan offset as base.
     const scaleFactor = dist / Math.max(1, pinchPrevDist);
     const newScale = Math.max(MIN_VIEW_SCALE, Math.min(MAX_VIEW_SCALE, state.viewScale * scaleFactor));
 
@@ -609,7 +616,7 @@
     state.viewOffsetX = centroidX - anchorCanvasX * newEffective;
     state.viewOffsetY = centroidY - anchorCanvasY * newEffective;
 
-    state.isPanning = Math.abs(centroidX - pinchPrevCentroid.x) > 0.1 || Math.abs(centroidY - pinchPrevCentroid.y) > 0.1;
+    state.isPanning = Math.abs(dx) > 0.1 || Math.abs(dy) > 0.1;
     pinchPrevCentroid = { x: centroidX, y: centroidY };
     pinchPrevDist = dist;
 
