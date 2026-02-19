@@ -57,6 +57,24 @@
       <button id="toolPen"></button>
       <button id="toolEraser"></button>
       <button id="toolFill"></button>
+      <button id="toolLine"></button>
+      <button id="toolRect"></button>
+      <button id="toolEllipse"></button>
+      <button id="toolPolygon"></button>
+    </div>
+
+    <h2>Shape</h2>
+    <div class="row">
+      <label>Mode
+        <select id="shapeMode">
+          <option value="stroke">Stroke</option>
+          <option value="fill">Fill</option>
+          <option value="both">Stroke+Fill</option>
+        </select>
+      </label>
+      <label>Fill
+        <select id="shapeFillColor"></select>
+      </label>
     </div>
 
     <h2 data-i18n="brushSize">ブラシサイズ</h2>
@@ -137,15 +155,16 @@
     ja: {
       lang: "言語", subtitle: "160x144 / 固定4色 / タイル制約可視化", tools: "ツール", brushSize: "ブラシサイズ", palette: "パレット",
       pattern: "パターン塗り (P)", enabled: "有効", invert: "反転", display: "表示", grid: "8x8境界線 (Shift+G)", tileSnap: "8x8タイルスナップ (T)",
-      heatmap: "ユニークタイル ヒートマップ", pencilOnly: "Apple Pencilのみ描画", resetView: "表示をリセット (R)", tileStats: "タイル統計", includeEmpty: "空タイルをユニーク数に含める", uniqueList: "ユニークタイル一覧",
+      heatmap: "ユニークタイル ヒートマップ", pencilOnly: "Apple Pencilのみ描画", resetView: "表示をリセット (0)", tileStats: "タイル統計", includeEmpty: "空タイルをユニーク数に含める", uniqueList: "ユニークタイル一覧",
       file: "ファイル", png: "PNG書き出し", shortcuts: "ショートカット", pen: "ペン (B)", eraser: "消しゴム (E)", fill: "塗りつぶし (G)",
+      line: "直線 (L)", rect: "四角 (R)", ellipse: "楕円 (O)", polygon: "多角形 (K)",
       newBtn: "新規", saveJson: "JSON保存", loadJson: "JSON読込",
       tilesUsed: (n) => `Tiles used: ${n} / 360`, uniqueTiles: (n) => `Unique tiles: ${n} / 192`,
       warnUnique: (n) => `⚠ Unique tiles exceed GB limit (192): ${n}`,
       fillCount: (n) => `出現 ${n}回`,
       confirmNew: "新規作成しますか？未保存の内容は失われます。", errLoad: (m) => `JSON読込エラー: ${m}`,
       errSize: (w,h) => `サイズ不一致: ${w}x${h} (期待: 160x144)`, errPixelsMissing: "pixelsがありません", errPixelsInvalid: "pixels長が不正です",
-      sc1: "<kbd>1-4</kbd> 色選択 / <kbd>B</kbd>ペン / <kbd>E</kbd>消しゴム / <kbd>G</kbd>塗りつぶし / <kbd>P</kbd>パターン",
+      sc1: "<kbd>1-4</kbd> 色選択 / <kbd>B</kbd>ペン / <kbd>E</kbd>消しゴム / <kbd>G</kbd>塗りつぶし / <kbd>L/R/O/K</kbd> 図形 / <kbd>P</kbd>パターン",
       sc2: "<kbd>Shift+G</kbd>グリッド / <kbd>T</kbd>タイルスナップ / <kbd>[</kbd><kbd>]</kbd>ブラシサイズ",
       sc3: "<kbd>Ctrl/Cmd+Z</kbd> Undo / <kbd>Ctrl/Cmd+Shift+Z</kbd> or <kbd>Ctrl+Y</kbd> Redo",
       sc4: "<kbd>Ctrl/Cmd+S</kbd> JSON保存 / <kbd>Ctrl/Cmd+O</kbd> JSON読込 / <kbd>Ctrl/Cmd+N</kbd> 新規 / <kbd>Ctrl/Cmd+E</kbd> PNG"
@@ -153,15 +172,16 @@
     en: {
       lang: "Language", subtitle: "160x144 / fixed 4 colors / tile-limit aware", tools: "Tools", brushSize: "Brush Size", palette: "Palette",
       pattern: "Pattern Paint (P)", enabled: "Enabled", invert: "Invert", display: "Display", grid: "8x8 Boundaries (Shift+G)", tileSnap: "8x8 Tile Snap (T)",
-      heatmap: "Unique Tile Heatmap", pencilOnly: "Draw with Apple Pencil only", resetView: "Reset View (R)", tileStats: "Tile Stats", includeEmpty: "Include empty tile in unique count", uniqueList: "Unique Tiles",
+      heatmap: "Unique Tile Heatmap", pencilOnly: "Draw with Apple Pencil only", resetView: "Reset View (0)", tileStats: "Tile Stats", includeEmpty: "Include empty tile in unique count", uniqueList: "Unique Tiles",
       file: "File", png: "PNG Export", shortcuts: "Shortcuts", pen: "Pen (B)", eraser: "Eraser (E)", fill: "Fill (G)",
+      line: "Line (L)", rect: "Rectangle (R)", ellipse: "Ellipse (O)", polygon: "Polygon (K)",
       newBtn: "New", saveJson: "Save JSON", loadJson: "Load JSON",
       tilesUsed: (n) => `Tiles used: ${n} / 360`, uniqueTiles: (n) => `Unique tiles: ${n} / 192`,
       warnUnique: (n) => `⚠ Unique tiles exceed GB limit (192): ${n}`,
       fillCount: (n) => `${n} uses`,
       confirmNew: "Create new canvas? Unsaved content will be lost.", errLoad: (m) => `JSON load error: ${m}`,
       errSize: (w,h) => `Size mismatch: ${w}x${h} (expected: 160x144)`, errPixelsMissing: "Missing pixels", errPixelsInvalid: "Invalid pixel length",
-      sc1: "<kbd>1-4</kbd> color / <kbd>B</kbd> pen / <kbd>E</kbd> eraser / <kbd>G</kbd> fill / <kbd>P</kbd> pattern",
+      sc1: "<kbd>1-4</kbd> color / <kbd>B</kbd> pen / <kbd>E</kbd> eraser / <kbd>G</kbd> fill / <kbd>L/R/O/K</kbd> shapes / <kbd>P</kbd> pattern",
       sc2: "<kbd>Shift+G</kbd> grid / <kbd>T</kbd> tile snap / <kbd>[</kbd><kbd>]</kbd> brush size",
       sc3: "<kbd>Ctrl/Cmd+Z</kbd> Undo / <kbd>Ctrl/Cmd+Shift+Z</kbd> or <kbd>Ctrl+Y</kbd> Redo",
       sc4: "<kbd>Ctrl/Cmd+S</kbd> save JSON / <kbd>Ctrl/Cmd+O</kbd> load JSON / <kbd>Ctrl/Cmd+N</kbd> new / <kbd>Ctrl/Cmd+E</kbd> PNG"
@@ -186,12 +206,14 @@
 
   const state = {
     pixels: new Uint8Array(W * H).fill(bgIndex), tool:"pen", brushSize:1, selectedColor:0,
+    shapeMode:"stroke", shapeFillColor:bgIndex,
     showGrid:true, tileSnap:false, patternEnabled:false, patternType:"d4_50", patternInvert:false,
     includeEmptyTiles:false, showHeatmap:false, lang: localStorage.getItem("gbpaint_lang") || "ja",
     pencilOnly: localStorage.getItem("gbpaint_pencil_only") === "1",
     isPinching:false, isPanning:false, isDrawing:false, pendingDraw:false,
     strokeBefore:null, undoStack:[], redoStack:[],
-    fitScale: 1, viewScale: 1, viewOffsetX: 0, viewOffsetY: 0
+    fitScale: 1, viewScale: 1, viewOffsetX: 0, viewOffsetY: 0,
+    shapePreview:null, polygonPoints:[]
   };
 
   const paintCanvas = document.getElementById("paintCanvas");
@@ -219,6 +241,9 @@
     undoBtn: document.getElementById("undoBtn"),
     redoBtn: document.getElementById("redoBtn")
   };
+
+  ui.shapeMode = document.getElementById("shapeMode");
+  ui.shapeFillColor = document.getElementById("shapeFillColor");
 
   const activePointers = new Map();
   let pinchMode = false;
@@ -253,6 +278,10 @@
     document.getElementById("toolPen").textContent = t("pen");
     document.getElementById("toolEraser").textContent = t("eraser");
     document.getElementById("toolFill").textContent = t("fill");
+    document.getElementById("toolLine").textContent = t("line");
+    document.getElementById("toolRect").textContent = t("rect");
+    document.getElementById("toolEllipse").textContent = t("ellipse");
+    document.getElementById("toolPolygon").textContent = t("polygon");
     document.getElementById("newBtn").textContent = t("newBtn");
     document.getElementById("saveJsonBtn").textContent = t("saveJson");
     document.getElementById("loadJsonBtn").textContent = t("loadJson");
@@ -435,6 +464,140 @@
     return changed;
   }
 
+  function drawSquareBrushTo(target, cx, cy, size, color, usePattern = true) {
+    const half = Math.floor(size / 2);
+    let changed = false;
+    for (let dy = 0; dy < size; dy++) for (let dx = 0; dx < size; dx++) {
+      const x = cx + dx - half, y = cy + dy - half;
+      if (x < 0 || y < 0 || x >= W || y >= H) continue;
+      if (usePattern && !patternShouldPaint(x, y)) continue;
+      const i = y * W + x;
+      if (target[i] === color) continue;
+      target[i] = color;
+      changed = true;
+    }
+    return changed;
+  }
+
+  function shapeStrokeColor() {
+    return state.tool === "eraser" ? bgIndex : state.selectedColor;
+  }
+
+  function rasterLine(target, x0, y0, x1, y1, color, usePattern = true) {
+    let changed = false;
+    for (const [x, y] of linePoints(x0, y0, x1, y1)) {
+      changed = drawSquareBrushTo(target, x, y, state.brushSize, color, usePattern) || changed;
+    }
+    return changed;
+  }
+
+  function rectBounds(a, b) {
+    const x0 = Math.min(a.x, b.x), y0 = Math.min(a.y, b.y);
+    const x1 = Math.max(a.x, b.x), y1 = Math.max(a.y, b.y);
+    return { x0, y0, x1, y1 };
+  }
+
+  function shapeRasterToBuffer(target, shape) {
+    const mode = state.shapeMode;
+    const strokeColor = shapeStrokeColor();
+    const fillColor = state.shapeFillColor;
+    let changed = false;
+    if (shape.type === "line") {
+      return rasterLine(target, shape.start.x, shape.start.y, shape.end.x, shape.end.y, strokeColor, true);
+    }
+    if (shape.type === "rect") {
+      const { x0, y0, x1, y1 } = rectBounds(shape.start, shape.end);
+      if (mode === "fill" || mode === "both") {
+        for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) {
+          if (!patternShouldPaint(x, y)) continue;
+          const i = y * W + x;
+          if (target[i] === fillColor) continue;
+          target[i] = fillColor;
+          changed = true;
+        }
+      }
+      if (mode === "stroke" || mode === "both") {
+        changed = rasterLine(target, x0, y0, x1, y0, strokeColor, true) || changed;
+        changed = rasterLine(target, x1, y0, x1, y1, strokeColor, true) || changed;
+        changed = rasterLine(target, x1, y1, x0, y1, strokeColor, true) || changed;
+        changed = rasterLine(target, x0, y1, x0, y0, strokeColor, true) || changed;
+      }
+      return changed;
+    }
+    if (shape.type === "ellipse") {
+      const { x0, y0, x1, y1 } = rectBounds(shape.start, shape.end);
+      const cx = (x0 + x1) / 2, cy = (y0 + y1) / 2;
+      const rx = Math.max(0.5, (x1 - x0) / 2), ry = Math.max(0.5, (y1 - y0) / 2);
+      for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) {
+        const nx = (x - cx) / rx, ny = (y - cy) / ry;
+        const d = nx * nx + ny * ny;
+        if ((mode === "fill" || mode === "both") && d <= 1) {
+          if (patternShouldPaint(x, y)) {
+            const i = y * W + x;
+            if (target[i] !== fillColor) { target[i] = fillColor; changed = true; }
+          }
+        }
+      }
+      if (mode === "stroke" || mode === "both") {
+        const step = Math.max(16, Math.round(Math.PI * (rx + ry) * 2));
+        let prev = null;
+        for (let i = 0; i <= step; i++) {
+          const th = (i / step) * Math.PI * 2;
+          const px = Math.round(cx + Math.cos(th) * rx);
+          const py = Math.round(cy + Math.sin(th) * ry);
+          if (prev) changed = rasterLine(target, prev.x, prev.y, px, py, strokeColor, true) || changed;
+          prev = { x: px, y: py };
+        }
+      }
+      return changed;
+    }
+    if (shape.type === "polygon") {
+      const pts = shape.points || [];
+      if (pts.length < 2) return false;
+      if (mode === "fill" || mode === "both") {
+        let minY = H - 1, maxY = 0;
+        for (const p of pts) { minY = Math.min(minY, p.y); maxY = Math.max(maxY, p.y); }
+        minY = Math.max(0, minY); maxY = Math.min(H - 1, maxY);
+        for (let y = minY; y <= maxY; y++) {
+          const xs = [];
+          for (let i = 0; i < pts.length; i++) {
+            const a = pts[i], b = pts[(i + 1) % pts.length];
+            if ((a.y <= y && b.y > y) || (b.y <= y && a.y > y)) {
+              const x = a.x + ((y - a.y) * (b.x - a.x)) / (b.y - a.y);
+              xs.push(x);
+            }
+          }
+          xs.sort((a, b) => a - b);
+          for (let i = 0; i + 1 < xs.length; i += 2) {
+            const sx = Math.max(0, Math.ceil(xs[i]));
+            const ex = Math.min(W - 1, Math.floor(xs[i + 1]));
+            for (let x = sx; x <= ex; x++) {
+              if (!patternShouldPaint(x, y)) continue;
+              const idx = y * W + x;
+              if (target[idx] !== fillColor) { target[idx] = fillColor; changed = true; }
+            }
+          }
+        }
+      }
+      if (mode === "stroke" || mode === "both") {
+        for (let i = 0; i < pts.length; i++) {
+          const a = pts[i], b = pts[(i + 1) % pts.length];
+          changed = rasterLine(target, a.x, a.y, b.x, b.y, strokeColor, true) || changed;
+        }
+      }
+      return changed;
+    }
+    return false;
+  }
+
+  function commitShape(shape) {
+    beginStroke();
+    const changed = shapeRasterToBuffer(state.pixels, shape);
+    if (changed) renderCanvas();
+    endStroke();
+    return changed;
+  }
+
   function linePoints(x0, y0, x1, y1) {
     const pts = []; const dx = Math.abs(x1-x0), dy = Math.abs(y1-y0), sx = x0 < x1 ? 1 : -1, sy = y0 < y1 ? 1 : -1;
     let err = dx - dy;
@@ -533,6 +696,37 @@
       }
       overlayCtx.stroke();
     }
+
+    if (state.shapePreview) {
+      const preview = state.pixels.slice();
+      shapeRasterToBuffer(preview, state.shapePreview);
+      overlayCtx.save();
+      overlayCtx.fillStyle = "rgba(134,192,108,0.35)";
+      for (let y = 0; y < H; y++) {
+        for (let x = 0; x < W; x++) {
+          const i = y * W + x;
+          if (preview[i] !== state.pixels[i]) {
+            overlayCtx.fillRect(x * scaleX, y * scaleY, scaleX, scaleY);
+          }
+        }
+      }
+      overlayCtx.restore();
+    }
+
+    if (state.tool === "polygon" && state.polygonPoints.length > 0) {
+      overlayCtx.save();
+      overlayCtx.strokeStyle = "rgba(255,255,255,0.75)";
+      overlayCtx.lineWidth = 1;
+      overlayCtx.beginPath();
+      const first = state.polygonPoints[0];
+      overlayCtx.moveTo((first.x + 0.5) * scaleX, (first.y + 0.5) * scaleY);
+      for (let i = 1; i < state.polygonPoints.length; i++) {
+        const p = state.polygonPoints[i];
+        overlayCtx.lineTo((p.x + 0.5) * scaleX, (p.y + 0.5) * scaleY);
+      }
+      overlayCtx.stroke();
+      overlayCtx.restore();
+    }
   }
 
   function undo() { const prev = state.undoStack.pop(); if (!prev) return; state.redoStack.push(state.pixels.slice()); state.pixels = prev; renderCanvas(); updateUndoRedoButtons(); }
@@ -614,9 +808,15 @@
     document.getElementById("toolPen").classList.toggle("active", state.tool === "pen");
     document.getElementById("toolEraser").classList.toggle("active", state.tool === "eraser");
     document.getElementById("toolFill").classList.toggle("active", state.tool === "fill");
+    document.getElementById("toolLine").classList.toggle("active", state.tool === "line");
+    document.getElementById("toolRect").classList.toggle("active", state.tool === "rect");
+    document.getElementById("toolEllipse").classList.toggle("active", state.tool === "ellipse");
+    document.getElementById("toolPolygon").classList.toggle("active", state.tool === "polygon");
     ui.brushButtons.forEach(b => b.classList.toggle("active", Number(b.dataset.size) === state.brushSize));
     ui.patternEnabled.checked = state.patternEnabled; ui.patternType.value = state.patternType; ui.patternInvert.checked = state.patternInvert;
     ui.gridToggle.checked = state.showGrid; ui.tileSnapToggle.checked = state.tileSnap; ui.heatmapToggle.checked = state.showHeatmap; ui.pencilOnlyToggle.checked = state.pencilOnly; ui.includeEmptyTiles.checked = state.includeEmptyTiles;
+    if (ui.shapeMode) ui.shapeMode.value = state.shapeMode;
+    if (ui.shapeFillColor) ui.shapeFillColor.value = String(state.shapeFillColor);
     selectColor(state.selectedColor); updateUndoRedoButtons();
   }
 
@@ -752,7 +952,19 @@
     if (!STR[state.lang]) state.lang = "ja";
 
     PATTERNS.forEach(p => { const opt = document.createElement("option"); opt.value = p.key; opt.textContent = p.label; ui.patternType.append(opt); });
-    palette.forEach((hex, i) => { const b = document.createElement("button"); b.className = "swatch"; b.style.background = hex; b.title = `${i+1}`; b.addEventListener("click", () => { selectColor(i); syncUI(); }); ui.paletteRow.append(b); });
+    palette.forEach((hex, i) => {
+      const b = document.createElement("button");
+      b.className = "swatch";
+      b.style.background = hex;
+      b.title = `${i+1}`;
+      b.addEventListener("click", () => { selectColor(i); syncUI(); });
+      ui.paletteRow.append(b);
+
+      const opt = document.createElement("option");
+      opt.value = String(i);
+      opt.textContent = `${i + 1}: ${hex}`;
+      ui.shapeFillColor.append(opt);
+    });
 
     paintCanvas.addEventListener("pointerdown", (ev) => {
       ev.preventDefault();
@@ -781,10 +993,27 @@
       }
 
       const pt = getPixelFromPointerEvent(ev);
+
+      if (state.tool === "polygon") {
+        if (ev.detail >= 2 && state.polygonPoints.length >= 3) {
+          commitShape({ type: "polygon", points: state.polygonPoints.slice() });
+          state.polygonPoints = [];
+        } else {
+          state.polygonPoints.push(pt);
+        }
+        state.shapePreview = null;
+        renderOverlay();
+        return;
+      }
+
       activeStrokePointerId = ev.pointerId;
       state.pendingDraw = true;
       pendingPointerId = ev.pointerId;
       pendingStartPixel = pt;
+      if (["line", "rect", "ellipse"].includes(state.tool)) {
+        state.shapePreview = { type: state.tool, start: pt, end: pt };
+        renderOverlay();
+      }
       updateCanvasGestureBlock();
     }, { passive: false });
 
@@ -810,6 +1039,28 @@
       }
 
       if (state.pendingDraw && ev.pointerId === pendingPointerId) {
+        if (["line", "rect", "ellipse"].includes(state.tool) && state.shapePreview) {
+          const pt = getPixelFromPointerEvent(ev);
+          let endPt = pt;
+          if (ev.shiftKey && (state.tool === "line")) {
+            const dx = pt.x - state.shapePreview.start.x;
+            const dy = pt.y - state.shapePreview.start.y;
+            if (Math.abs(dx) >= Math.abs(dy)) endPt = { x: pt.x, y: state.shapePreview.start.y };
+            else endPt = { x: state.shapePreview.start.x, y: pt.y };
+          }
+          if (ev.shiftKey && (state.tool === "rect" || state.tool === "ellipse")) {
+            const dx = pt.x - state.shapePreview.start.x;
+            const dy = pt.y - state.shapePreview.start.y;
+            const d = Math.max(Math.abs(dx), Math.abs(dy));
+            endPt = { x: state.shapePreview.start.x + Math.sign(dx || 1) * d, y: state.shapePreview.start.y + Math.sign(dy || 1) * d };
+          }
+          state.shapePreview.end = {
+            x: Math.max(0, Math.min(W - 1, endPt.x)),
+            y: Math.max(0, Math.min(H - 1, endPt.y))
+          };
+          renderOverlay();
+          return;
+        }
         const moved = Math.hypot(ev.clientX - activeDown.x, ev.clientY - activeDown.y) > 3;
         if (moved) {
           if (state.tool !== "fill") {
@@ -861,6 +1112,12 @@
       } else if (state.pendingDraw && ev.pointerId === pendingPointerId) {
         const pt = pendingStartPixel || getPixelFromPointerEvent(ev);
         state.pendingDraw = false;
+        if (["line", "rect", "ellipse"].includes(state.tool) && state.shapePreview) {
+          if (state.tool === "line") state.shapePreview.type = "line";
+          commitShape(state.shapePreview);
+          state.shapePreview = null;
+          renderOverlay();
+        } else
         if (state.tool === "fill" && canDrawWithPointerType(ev.pointerType)) {
           beginStroke();
           if (floodFill(pt.x, pt.y)) renderCanvas();
@@ -904,6 +1161,8 @@
         state.pendingDraw = false;
         pendingPointerId = null;
         pendingStartPixel = null;
+        state.shapePreview = null;
+        renderOverlay();
       }
       activeDown = null;
       updateCanvasGestureBlock();
@@ -915,6 +1174,10 @@
     document.getElementById("toolPen").addEventListener("click", () => { state.tool = "pen"; syncUI(); });
     document.getElementById("toolEraser").addEventListener("click", () => { state.tool = "eraser"; syncUI(); });
     document.getElementById("toolFill").addEventListener("click", () => { state.tool = "fill"; syncUI(); });
+    document.getElementById("toolLine").addEventListener("click", () => { state.tool = "line"; state.shapePreview = null; syncUI(); renderOverlay(); });
+    document.getElementById("toolRect").addEventListener("click", () => { state.tool = "rect"; state.shapePreview = null; syncUI(); renderOverlay(); });
+    document.getElementById("toolEllipse").addEventListener("click", () => { state.tool = "ellipse"; state.shapePreview = null; syncUI(); renderOverlay(); });
+    document.getElementById("toolPolygon").addEventListener("click", () => { state.tool = "polygon"; state.shapePreview = null; syncUI(); renderOverlay(); });
     ui.brushButtons.forEach(b => b.addEventListener("click", () => { state.brushSize = Number(b.dataset.size); syncUI(); }));
 
     ui.patternEnabled.addEventListener("change", () => { state.patternEnabled = ui.patternEnabled.checked; syncUI(); });
@@ -926,6 +1189,8 @@
     ui.pencilOnlyToggle.addEventListener("change", () => { state.pencilOnly = ui.pencilOnlyToggle.checked; localStorage.setItem("gbpaint_pencil_only", state.pencilOnly ? "1" : "0"); syncUI(); });
     ui.resetViewBtn.addEventListener("click", resetViewTransform);
     ui.includeEmptyTiles.addEventListener("change", () => { state.includeEmptyTiles = ui.includeEmptyTiles.checked; updateTileInfo(); });
+    ui.shapeMode.addEventListener("change", () => { state.shapeMode = ui.shapeMode.value; renderOverlay(); });
+    ui.shapeFillColor.addEventListener("change", () => { state.shapeFillColor = Number(ui.shapeFillColor.value); renderOverlay(); });
 
     document.getElementById("newBtn").addEventListener("click", newCanvas);
     document.getElementById("saveJsonBtn").addEventListener("click", saveJSON);
@@ -973,10 +1238,26 @@
       if (key === "b") { state.tool = "pen"; syncUI(); return; }
       if (key === "e") { state.tool = "eraser"; syncUI(); return; }
       if (key === "g" && !ev.shiftKey) { state.tool = "fill"; syncUI(); return; }
+      if (key === "l") { state.tool = "line"; state.shapePreview = null; syncUI(); renderOverlay(); return; }
+      if (key === "r") { state.tool = "rect"; state.shapePreview = null; syncUI(); renderOverlay(); return; }
+      if (key === "o") { state.tool = "ellipse"; state.shapePreview = null; syncUI(); renderOverlay(); return; }
+      if (key === "k") { state.tool = "polygon"; state.shapePreview = null; syncUI(); renderOverlay(); return; }
+      if (key === "enter" && state.tool === "polygon" && state.polygonPoints.length >= 3) {
+        commitShape({ type: "polygon", points: state.polygonPoints.slice() });
+        state.polygonPoints = [];
+        renderOverlay();
+        return;
+      }
+      if (key === "escape" && state.tool === "polygon") {
+        state.polygonPoints = [];
+        state.shapePreview = null;
+        renderOverlay();
+        return;
+      }
       if (key === "p") { state.patternEnabled = !state.patternEnabled; syncUI(); return; }
       if (key === "t") { state.tileSnap = !state.tileSnap; syncUI(); return; }
       if (key === "g" && ev.shiftKey) { state.showGrid = !state.showGrid; syncUI(); renderOverlay(); return; }
-      if (key === "r") { resetViewTransform(); return; }
+      if (key === "0") { resetViewTransform(); return; }
       if (key === "[") { state.brushSize = [1,2,4][Math.max(0, [1,2,4].indexOf(state.brushSize)-1)]; syncUI(); return; }
       if (key === "]") { state.brushSize = [1,2,4][Math.min(2, [1,2,4].indexOf(state.brushSize)+1)]; syncUI(); return; }
     });
