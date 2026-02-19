@@ -20,7 +20,8 @@
     .meta { font-size:.88rem; opacity:.95; }
     .warn { color:var(--warn); font-weight:700; }
     .workspace { position:relative; padding:12px; overflow:hidden; }
-    .canvas-wrap { position:absolute; left:0; top:0; width:fit-content; height:fit-content; box-shadow:0 0 0 1px #444; background:#000; touch-action:none; user-select:none; -webkit-user-select:none; -webkit-touch-callout:none; }
+    .canvas-wrap { position:absolute; left:0; top:0; width:fit-content; height:fit-content; box-shadow:0 0 0 1px #444; background:#000; touch-action:none; user-select:none; -webkit-user-select:none; -webkit-touch-callout:none; cursor:crosshair; }
+    .canvas-wrap.mouse-pan { cursor:grabbing; }
     canvas { image-rendering:pixelated; image-rendering:crisp-edges; display:block; touch-action:none; user-select:none; -webkit-user-select:none; -webkit-touch-callout:none; }
     #overlayCanvas { position:absolute; left:0; top:0; pointer-events:none; touch-action:none; user-select:none; -webkit-user-select:none; -webkit-touch-callout:none; }
     .header-actions { display:flex; gap:6px; align-items:center; touch-action:manipulation; -webkit-user-select:none; user-select:none; pointer-events:auto; }
@@ -234,6 +235,10 @@
   let tapInfo = { count: 0, time: 0, x: 0, y: 0 };
   let activeStrokePointerId = null;
   let activeDown = null;
+  let isMousePanning = false;
+  let mousePanStart = { x: 0, y: 0 };
+  let mousePanOffsetStart = { x: 0, y: 0 };
+  let wheelClampTimer = null;
 
   function t(k, ...args) {
     const v = STR[state.lang][k];
@@ -338,6 +343,68 @@
     y = Math.max(0, Math.min(H - 1, y));
     if (state.tileSnap) { x = Math.floor(x / TILE) * TILE; y = Math.floor(y / TILE) * TILE; }
     return { x, y };
+  }
+
+  function getWorkspacePointFromEvent(ev) {
+    const rect = document.querySelector(".workspace").getBoundingClientRect();
+    return { x: ev.clientX - rect.left, y: ev.clientY - rect.top };
+  }
+
+  function handleWheel(ev) {
+    if (!document.getElementById("canvasWrap").contains(ev.target)) return;
+    ev.preventDefault();
+    const p = getWorkspacePointFromEvent(ev);
+    const oldEffective = state.fitScale * state.viewScale;
+    const anchorX = (p.x - state.viewOffsetX) / oldEffective;
+    const anchorY = (p.y - state.viewOffsetY) / oldEffective;
+
+    const zoomIntensity = 0.002;
+    const scaleFactor = Math.exp(-ev.deltaY * zoomIntensity);
+    state.viewScale = Math.max(MIN_VIEW_SCALE, Math.min(MAX_VIEW_SCALE, state.viewScale * scaleFactor));
+
+    const newEffective = state.fitScale * state.viewScale;
+    state.viewOffsetX = p.x - anchorX * newEffective;
+    state.viewOffsetY = p.y - anchorY * newEffective;
+
+    applyViewTransform(true);
+    updateScaleBadge();
+    renderOverlay();
+
+    if (wheelClampTimer) clearTimeout(wheelClampTimer);
+    wheelClampTimer = setTimeout(() => {
+      applyViewTransform(false);
+      renderOverlay();
+    }, 150);
+  }
+
+  function startMousePan(ev) {
+    isMousePanning = true;
+    const wrap = document.getElementById("canvasWrap");
+    wrap.classList.add("mouse-pan");
+    mousePanStart = { x: ev.clientX, y: ev.clientY };
+    mousePanOffsetStart = { x: state.viewOffsetX, y: state.viewOffsetY };
+    try { paintCanvas.setPointerCapture(ev.pointerId); } catch (_) {}
+  }
+
+  function moveMousePan(ev) {
+    if (!isMousePanning) return;
+    ev.preventDefault();
+    state.viewOffsetX = mousePanOffsetStart.x + (ev.clientX - mousePanStart.x);
+    state.viewOffsetY = mousePanOffsetStart.y + (ev.clientY - mousePanStart.y);
+    applyViewTransform(true);
+    renderOverlay();
+  }
+
+  function endMousePan(ev) {
+    if (!isMousePanning) return;
+    isMousePanning = false;
+    const wrap = document.getElementById("canvasWrap");
+    wrap.classList.remove("mouse-pan");
+    applyViewTransform(false);
+    renderOverlay();
+    if (paintCanvas.hasPointerCapture && paintCanvas.hasPointerCapture(ev.pointerId)) {
+      try { paintCanvas.releasePointerCapture(ev.pointerId); } catch (_) {}
+    }
   }
 
   function patternShouldPaint(x, y) {
@@ -689,6 +756,10 @@
 
     paintCanvas.addEventListener("pointerdown", (ev) => {
       ev.preventDefault();
+      if (ev.pointerType === "mouse" && ev.button === 1) {
+        startMousePan(ev);
+        return;
+      }
       if (ev.pointerType === "mouse" && ev.button !== 0) return;
 
       activePointers.set(ev.pointerId, { clientX: ev.clientX, clientY: ev.clientY, pointerType: ev.pointerType });
@@ -719,6 +790,11 @@
 
     paintCanvas.addEventListener("pointermove", (ev) => {
       ev.preventDefault();
+      if (isMousePanning) {
+        moveMousePan(ev);
+        return;
+      }
+
       if (activePointers.has(ev.pointerId)) {
         activePointers.set(ev.pointerId, { clientX: ev.clientX, clientY: ev.clientY, pointerType: ev.pointerType });
       }
@@ -768,6 +844,9 @@
 
     paintCanvas.addEventListener("pointerup", (ev) => {
       ev.preventDefault();
+      if (isMousePanning && ev.pointerType === "mouse") {
+        endMousePan(ev);
+      }
       activePointers.delete(ev.pointerId);
       if (pinchMode && activePointers.size < 2) {
         pinchMode = false;
@@ -789,7 +868,7 @@
         }
       }
 
-      tryRegisterTap(ev);
+      if (!isMousePanning) tryRegisterTap(ev);
 
       if (paintCanvas.hasPointerCapture && paintCanvas.hasPointerCapture(ev.pointerId)) {
         try { paintCanvas.releasePointerCapture(ev.pointerId); } catch (_) {}
@@ -806,6 +885,9 @@
 
     paintCanvas.addEventListener("pointercancel", (ev) => {
       ev.preventDefault();
+      if (isMousePanning && ev.pointerType === "mouse") {
+        endMousePan(ev);
+      }
       activePointers.delete(ev.pointerId);
       if (pinchMode && activePointers.size < 2) {
         pinchMode = false;
@@ -899,6 +981,7 @@
       if (key === "]") { state.brushSize = [1,2,4][Math.min(2, [1,2,4].indexOf(state.brushSize)+1)]; syncUI(); return; }
     });
 
+    paintCanvas.addEventListener("wheel", handleWheel, { passive: false });
     window.addEventListener("resize", updateScale);
 
     updateI18n();
