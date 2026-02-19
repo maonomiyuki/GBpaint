@@ -100,16 +100,17 @@
     <div class="row">
       <button id="toolPen" class="active">ペン (B)</button>
       <button id="toolEraser">消しゴム (E)</button>
+      <button id="toolFill">塗りつぶし (G)</button>
     </div>
 
-    <h2>ブラシ</h2>
+    <h2>ブラシサイズ</h2>
     <div class="row" id="brushButtons">
-      <button data-size="1" class="active">1</button>
-      <button data-size="2">2</button>
-      <button data-size="4">4</button>
+      <button data-size="1" class="active">1px</button>
+      <button data-size="2">2px</button>
+      <button data-size="4">4px</button>
     </div>
 
-    <h2>パレット (1-4)</h2>
+    <h2>パレット</h2>
     <div class="row" id="paletteRow"></div>
 
     <h2>パターン塗り (P)</h2>
@@ -121,15 +122,12 @@
         <option value="dither50">2x2 50%</option>
         <option value="dither75">2x2 75%</option>
       </select>
-    </div>
-    <div class="row">
-      <label>色A <select id="patternColorA"></select></label>
-      <label>色B <select id="patternColorB"></select></label>
+      <label><input type="checkbox" id="patternInvert" /> 反転</label>
     </div>
 
     <h2>表示</h2>
     <div class="row">
-      <label><input type="checkbox" id="gridToggle" checked /> グリッド (G)</label>
+      <label><input type="checkbox" id="gridToggle" checked /> グリッド (Shift+G)</label>
       <label><input type="checkbox" id="tileSnapToggle" /> 8x8タイルスナップ (T)</label>
       <label><input type="checkbox" id="heatmapToggle" /> ユニークタイル ヒートマップ</label>
     </div>
@@ -168,7 +166,7 @@
     <h2>ショートカット</h2>
     <div class="meta">
       <div><kbd>1-4</kbd> 色選択 / <kbd>B</kbd>ペン / <kbd>E</kbd>消しゴム / <kbd>P</kbd>パターン</div>
-      <div><kbd>T</kbd>タイルスナップ / <kbd>G</kbd>グリッド / <kbd>[</kbd><kbd>]</kbd>ブラシ</div>
+      <div><kbd>G</kbd>塗りつぶし / <kbd>Shift+G</kbd>グリッド / <kbd>T</kbd>タイルスナップ / <kbd>[</kbd><kbd>]</kbd>ブラシサイズ</div>
       <div><kbd>Ctrl/Cmd+Z</kbd> Undo / <kbd>Ctrl/Cmd+Shift+Z</kbd> or <kbd>Ctrl+Y</kbd> Redo</div>
       <div><kbd>Ctrl/Cmd+S</kbd> JSON保存 / <kbd>Ctrl/Cmd+O</kbd> JSON読込 / <kbd>Ctrl/Cmd+N</kbd> 新規</div>
       <div><kbd>Ctrl/Cmd+E</kbd> PNG書き出し(160x144)</div>
@@ -198,8 +196,7 @@
     tileSnap: false,
     patternEnabled: false,
     patternType: "checker1",
-    patternColorA: 0,
-    patternColorB: 3,
+    patternInvert: false,
     includeEmptyTiles: false,
     showHeatmap: false,
     isDrawing: false,
@@ -218,8 +215,7 @@
   const brushButtons = [...document.querySelectorAll("#brushButtons button")];
   const patternEnabledEl = document.getElementById("patternEnabled");
   const patternTypeEl = document.getElementById("patternType");
-  const patternColorAEl = document.getElementById("patternColorA");
-  const patternColorBEl = document.getElementById("patternColorB");
+  const patternInvertEl = document.getElementById("patternInvert");
   const gridToggleEl = document.getElementById("gridToggle");
   const tileSnapToggleEl = document.getElementById("tileSnapToggle");
   const heatmapToggleEl = document.getElementById("heatmapToggle");
@@ -249,18 +245,19 @@
     return true;
   }
 
-  function patternColorAt(x, y, baseColor) {
-    if (!state.patternEnabled || state.tool === "eraser") return baseColor;
-    const a = state.patternColorA;
-    const b = state.patternColorB;
-    if (state.patternType === "checker1") return ((x + y) % 2 === 0) ? a : b;
-    const bx = x % 2;
-    const by = y % 2;
-    const bit = by * 2 + bx;
-    if (state.patternType === "dither25") return bit === 0 ? a : b;
-    if (state.patternType === "dither50") return (bit === 0 || bit === 3) ? a : b;
-    if (state.patternType === "dither75") return bit !== 3 ? a : b;
-    return baseColor;
+  function shouldPaintPatternCell(x, y) {
+    if (!state.patternEnabled || state.tool !== "pen") return true;
+    let paint = true;
+    if (state.patternType === "checker1") paint = ((x + y) % 2 === 0);
+    else {
+      const bx = x % 2;
+      const by = y % 2;
+      const bit = by * 2 + bx;
+      if (state.patternType === "dither25") paint = bit === 0;
+      else if (state.patternType === "dither50") paint = (bit === 0 || bit === 3);
+      else if (state.patternType === "dither75") paint = bit !== 3;
+    }
+    return state.patternInvert ? !paint : paint;
   }
 
   function drawBrush(cx, cy) {
@@ -272,8 +269,8 @@
       for (let dx = 0; dx < size; dx++) {
         const x = cx + dx - half;
         const y = cy + dy - half;
-        const idx = patternColorAt(x, y, drawColor);
-        if (setPixel(x, y, idx)) changed = true;
+        if (!shouldPaintPatternCell(x, y)) continue;
+        if (setPixel(x, y, drawColor)) changed = true;
       }
     }
     return changed;
@@ -374,9 +371,17 @@
 
   let lastPoint = null;
   paintCanvas.addEventListener("pointerdown", (ev) => {
+    const pt = pixelFromEvent(ev);
+
+    if (state.tool === "fill") {
+      beginStroke();
+      if (floodFill(pt.x, pt.y)) renderCanvas();
+      endStroke();
+      return;
+    }
+
     state.isDrawing = true;
     beginStroke();
-    const pt = pixelFromEvent(ev);
     drawBrush(pt.x, pt.y);
     lastPoint = pt;
     renderCanvas();
@@ -396,6 +401,40 @@
     if (changed) renderCanvas();
     lastPoint = pt;
   });
+
+  function floodFill(startX, startY) {
+    const start = startY * W + startX;
+    const target = state.pixels[start];
+    const replacement = state.selectedColor;
+    if (target === replacement) return false;
+
+    const qx = new Int16Array(W * H);
+    const qy = new Int16Array(W * H);
+    let head = 0, tail = 0;
+    qx[tail] = startX;
+    qy[tail] = startY;
+    tail++;
+    let changed = false;
+
+    while (head < tail) {
+      const x = qx[head];
+      const y = qy[head];
+      head++;
+      const i = y * W + x;
+      if (state.pixels[i] !== target) continue;
+
+      // Fill tool with pattern ON currently uses simple full fill (no transparent-pattern flood fill).
+      state.pixels[i] = replacement;
+      changed = true;
+
+      if (x > 0) { qx[tail] = x - 1; qy[tail] = y; tail++; }
+      if (x < W - 1) { qx[tail] = x + 1; qy[tail] = y; tail++; }
+      if (y > 0) { qx[tail] = x; qy[tail] = y - 1; tail++; }
+      if (y < H - 1) { qx[tail] = x; qy[tail] = y + 1; tail++; }
+    }
+
+    return changed;
+  }
 
   function undo() {
     const prev = state.undoStack.pop();
@@ -438,8 +477,7 @@
         selectedColor: state.selectedColor,
         patternEnabled: state.patternEnabled,
         patternType: state.patternType,
-        patternColorA: state.patternColorA,
-        patternColorB: state.patternColorB,
+        patternInvert: state.patternInvert,
       }
     };
     const blob = new Blob([JSON.stringify(payload)], { type: "application/json" });
@@ -582,11 +620,11 @@
   function syncUI() {
     document.getElementById("toolPen").classList.toggle("active", state.tool === "pen");
     document.getElementById("toolEraser").classList.toggle("active", state.tool === "eraser");
+    document.getElementById("toolFill").classList.toggle("active", state.tool === "fill");
     brushButtons.forEach((b) => b.classList.toggle("active", Number(b.dataset.size) === state.brushSize));
     patternEnabledEl.checked = state.patternEnabled;
     patternTypeEl.value = state.patternType;
-    patternColorAEl.value = String(state.patternColorA);
-    patternColorBEl.value = String(state.patternColorB);
+    patternInvertEl.checked = state.patternInvert;
     gridToggleEl.checked = state.showGrid;
     tileSnapToggleEl.checked = state.tileSnap;
     heatmapToggleEl.checked = state.showHeatmap;
@@ -603,22 +641,16 @@
       sw.addEventListener("click", () => { state.tool = "pen"; selectColor(i); syncUI(); });
       paletteRow.append(sw);
 
-      const optA = document.createElement("option");
-      optA.value = String(i);
-      optA.textContent = `${i}: ${hex}`;
-      patternColorAEl.append(optA);
-      const optB = optA.cloneNode(true);
-      patternColorBEl.append(optB);
     });
 
     document.getElementById("toolPen").addEventListener("click", () => { state.tool = "pen"; syncUI(); });
     document.getElementById("toolEraser").addEventListener("click", () => { state.tool = "eraser"; syncUI(); });
+    document.getElementById("toolFill").addEventListener("click", () => { state.tool = "fill"; syncUI(); });
     brushButtons.forEach((b) => b.addEventListener("click", () => { state.brushSize = Number(b.dataset.size); syncUI(); }));
 
     patternEnabledEl.addEventListener("change", () => { state.patternEnabled = patternEnabledEl.checked; syncUI(); });
     patternTypeEl.addEventListener("change", () => { state.patternType = patternTypeEl.value; syncUI(); });
-    patternColorAEl.addEventListener("change", () => { state.patternColorA = Number(patternColorAEl.value); syncUI(); });
-    patternColorBEl.addEventListener("change", () => { state.patternColorB = Number(patternColorBEl.value); syncUI(); });
+    patternInvertEl.addEventListener("change", () => { state.patternInvert = patternInvertEl.checked; syncUI(); });
 
     gridToggleEl.addEventListener("change", () => { state.showGrid = gridToggleEl.checked; renderOverlay(); });
     tileSnapToggleEl.addEventListener("change", () => { state.tileSnap = tileSnapToggleEl.checked; syncUI(); });
@@ -665,9 +697,10 @@
       if (key >= "1" && key <= "4") { selectColor(Number(key) - 1); state.tool = "pen"; syncUI(); return; }
       if (key === "b") { state.tool = "pen"; syncUI(); return; }
       if (key === "e") { state.tool = "eraser"; syncUI(); return; }
+      if (key === "g" && !ev.shiftKey) { state.tool = "fill"; syncUI(); return; }
       if (key === "p") { state.patternEnabled = !state.patternEnabled; syncUI(); return; }
       if (key === "t") { state.tileSnap = !state.tileSnap; syncUI(); return; }
-      if (key === "g") { state.showGrid = !state.showGrid; syncUI(); renderOverlay(); return; }
+      if (key === "g" && ev.shiftKey) { state.showGrid = !state.showGrid; syncUI(); renderOverlay(); return; }
       if (key === "[") { state.brushSize = [1,2,4][Math.max(0, [1,2,4].indexOf(state.brushSize)-1)]; syncUI(); return; }
       if (key === "]") { state.brushSize = [1,2,4][Math.min(2, [1,2,4].indexOf(state.brushSize)+1)]; syncUI(); return; }
     });
