@@ -23,8 +23,8 @@
     .canvas-wrap { position:relative; width:fit-content; height:fit-content; box-shadow:0 0 0 1px #444; background:#000; touch-action:none; user-select:none; -webkit-user-select:none; -webkit-touch-callout:none; }
     canvas { image-rendering:pixelated; image-rendering:crisp-edges; display:block; touch-action:none; user-select:none; -webkit-user-select:none; -webkit-touch-callout:none; }
     #overlayCanvas { position:absolute; left:0; top:0; pointer-events:none; touch-action:none; user-select:none; -webkit-user-select:none; -webkit-touch-callout:none; }
-    .header-actions { display:flex; gap:6px; align-items:center; }
-    .header-actions button { min-width:44px; min-height:44px; font-size:20px; font-weight:700; padding:0; }
+    .header-actions { display:flex; gap:6px; align-items:center; touch-action:manipulation; -webkit-user-select:none; user-select:none; }
+    .header-actions button { min-width:44px; min-height:44px; font-size:20px; font-weight:700; padding:0; touch-action:manipulation; -webkit-user-select:none; user-select:none; }
     details summary { cursor:pointer; }
     #uniqueTilesList { display:grid; grid-template-columns:repeat(auto-fill,minmax(90px,1fr)); gap:8px; margin-top:8px; }
     .tile-item { background:#262626; border:1px solid #3f3f3f; border-radius:6px; padding:4px; font-size:.75rem; }
@@ -185,7 +185,8 @@
     pixels: new Uint8Array(W * H).fill(bgIndex), tool:"pen", brushSize:1, selectedColor:0,
     showGrid:true, tileSnap:false, patternEnabled:false, patternType:"d4_50", patternInvert:false,
     includeEmptyTiles:false, showHeatmap:false, lang: localStorage.getItem("gbpaint_lang") || "ja",
-    isDrawing:false, strokeBefore:null, undoStack:[], redoStack:[]
+    isDrawing:false, strokeBefore:null, undoStack:[], redoStack:[],
+    fitScale: 1, viewScale: 1, viewOffsetX: 0, viewOffsetY: 0
   };
 
   const paintCanvas = document.getElementById("paintCanvas");
@@ -211,6 +212,23 @@
     undoBtn: document.getElementById("undoBtn"),
     redoBtn: document.getElementById("redoBtn")
   };
+
+  const activePointers = new Map();
+  let pinchMode = false;
+  let pinchStartDist = 0;
+  let pinchStartViewScale = 1;
+  let pinchStartOffsetX = 0;
+  let pinchStartOffsetY = 0;
+  let pinchStartTopLeft = { x: 0, y: 0 };
+  let pinchPivot = { x: 0, y: 0 };
+  const MIN_VIEW_SCALE = 1;
+  const MAX_VIEW_SCALE = 16;
+  const TAP_MAX_MS = 320;
+  const TAP_MAX_MOVE = 12;
+  const TAP_CLUSTER_RADIUS = 30;
+  let tapInfo = { count: 0, time: 0, x: 0, y: 0 };
+  let activeStrokePointerId = null;
+  let activeDown = null;
 
   function t(k, ...args) {
     const v = STR[state.lang][k];
@@ -242,15 +260,31 @@
     return { dpr, displayW, displayH, scaleX: displayW / W, scaleY: displayH / H };
   }
 
+  function applyViewTransform() {
+    const displayScale = state.fitScale * state.viewScale;
+    const displayW = W * displayScale;
+    const displayH = H * displayScale;
+    paintCanvas.style.width = `${displayW}px`;
+    paintCanvas.style.height = `${displayH}px`;
+    const wrap = document.getElementById("canvasWrap");
+    wrap.style.transform = `translate(${state.viewOffsetX}px, ${state.viewOffsetY}px)`;
+    resizeOverlayCanvas();
+  }
+
+  function updateScaleBadge() {
+    const b = document.getElementById("subtitle");
+    b.dataset.scale = `x${state.viewScale.toFixed(2).replace(/\.00$/, "")}`;
+  }
+
   function updateScale() {
     const panel = document.querySelector(".panel");
     const panelW = window.innerWidth > 920 ? panel.offsetWidth : 0;
     const panelH = window.innerWidth <= 920 ? panel.offsetHeight : 0;
     const availW = Math.max(200, window.innerWidth - panelW - 32);
     const availH = Math.max(200, window.innerHeight - panelH - 32);
-    const scale = Math.max(1, Math.floor(Math.min(availW / W, availH / H)));
-    paintCanvas.style.width = `${W * scale}px`; paintCanvas.style.height = `${H * scale}px`;
-    resizeOverlayCanvas();
+    state.fitScale = Math.max(1, Math.floor(Math.min(availW / W, availH / H)));
+    applyViewTransform();
+    updateScaleBadge();
     renderOverlay();
   }
 
@@ -479,6 +513,81 @@
     selectColor(state.selectedColor); updateUndoRedoButtons();
   }
 
+  function getPointerDistance(a, b) {
+    const dx = a.clientX - b.clientX;
+    const dy = a.clientY - b.clientY;
+    return Math.hypot(dx, dy);
+  }
+
+  function getPointerMid(a, b) {
+    return { x: (a.clientX + b.clientX) / 2, y: (a.clientY + b.clientY) / 2 };
+  }
+
+  function beginPinch() {
+    const pts = [...activePointers.values()];
+    if (pts.length < 2) return;
+    pinchMode = true;
+    const a = pts[0], b = pts[1];
+    pinchStartDist = Math.max(1, getPointerDistance(a, b));
+    pinchStartViewScale = state.viewScale;
+    pinchStartOffsetX = state.viewOffsetX;
+    pinchStartOffsetY = state.viewOffsetY;
+    pinchPivot = getPointerMid(a, b);
+    const rect = paintCanvas.getBoundingClientRect();
+    pinchStartTopLeft = { x: rect.left, y: rect.top };
+
+    if (state.isDrawing) {
+      state.isDrawing = false;
+      lastPoint = null;
+      allowDocumentScrollAfterDrawing();
+      endStroke();
+    }
+    activeDown = null;
+  }
+
+  function updatePinch() {
+    const pts = [...activePointers.values()];
+    if (pts.length < 2) return;
+    const a = pts[0], b = pts[1];
+    const dist = Math.max(1, getPointerDistance(a, b));
+    const ratio = dist / pinchStartDist;
+    const nextViewScale = Math.max(MIN_VIEW_SCALE, Math.min(MAX_VIEW_SCALE, pinchStartViewScale * ratio));
+    const total0 = state.fitScale * pinchStartViewScale;
+    const total1 = state.fitScale * nextViewScale;
+
+    const worldX = (pinchPivot.x - pinchStartTopLeft.x) / total0;
+    const worldY = (pinchPivot.y - pinchStartTopLeft.y) / total0;
+    const desiredLeft = pinchPivot.x - worldX * total1;
+    const desiredTop = pinchPivot.y - worldY * total1;
+
+    state.viewScale = nextViewScale;
+    state.viewOffsetX = pinchStartOffsetX + (desiredLeft - pinchStartTopLeft.x);
+    state.viewOffsetY = pinchStartOffsetY + (desiredTop - pinchStartTopLeft.y);
+    applyViewTransform();
+    updateScaleBadge();
+    renderOverlay();
+  }
+
+  function tryRegisterTap(ev) {
+    if (state.tool === "fill") return;
+    if (!activeDown || activeDown.moved || activeDown.pointerType === "mouse") return;
+    const dt = performance.now() - activeDown.time;
+    if (dt > TAP_MAX_MS) return;
+
+    const closeInTime = performance.now() - tapInfo.time <= 350;
+    const closeInSpace = Math.hypot(ev.clientX - tapInfo.x, ev.clientY - tapInfo.y) <= TAP_CLUSTER_RADIUS;
+    tapInfo.count = (closeInTime && closeInSpace) ? tapInfo.count + 1 : 1;
+    tapInfo.time = performance.now();
+    tapInfo.x = ev.clientX; tapInfo.y = ev.clientY;
+
+    if (tapInfo.count === 2) {
+      undo();
+    } else if (tapInfo.count >= 3) {
+      redo();
+      tapInfo.count = 0;
+    }
+  }
+
   const preventScroll = (ev) => {
     if (state.isDrawing) ev.preventDefault();
   };
@@ -514,16 +623,28 @@
     paintCanvas.addEventListener("pointerdown", (ev) => {
       ev.preventDefault();
       if (ev.pointerType === "mouse" && ev.button !== 0) return;
+      activePointers.set(ev.pointerId, { clientX: ev.clientX, clientY: ev.clientY, pointerType: ev.pointerType });
       paintCanvas.setPointerCapture(ev.pointerId);
+
+      if (activePointers.size >= 2) {
+        beginPinch();
+        return;
+      }
+
+      activeStrokePointerId = ev.pointerId;
+      activeDown = { x: ev.clientX, y: ev.clientY, time: performance.now(), moved: false, pointerType: ev.pointerType };
       const pt = getPixelFromPointerEvent(ev);
 
       if (state.tool === "fill") {
         beginStroke();
         if (floodFill(pt.x, pt.y)) renderCanvas();
         endStroke();
+        tryRegisterTap(ev);
         if (paintCanvas.hasPointerCapture && paintCanvas.hasPointerCapture(ev.pointerId)) {
           try { paintCanvas.releasePointerCapture(ev.pointerId); } catch (_) {}
         }
+        activePointers.delete(ev.pointerId);
+        activeDown = null;
         return;
       }
 
@@ -537,7 +658,21 @@
 
     paintCanvas.addEventListener("pointermove", (ev) => {
       ev.preventDefault();
-      if (!state.isDrawing) return;
+      if (activePointers.has(ev.pointerId)) {
+        activePointers.set(ev.pointerId, { clientX: ev.clientX, clientY: ev.clientY, pointerType: ev.pointerType });
+      }
+
+      if (pinchMode || activePointers.size >= 2) {
+        if (!pinchMode && activePointers.size >= 2) beginPinch();
+        if (pinchMode) updatePinch();
+        return;
+      }
+
+      if (activeDown && Math.hypot(ev.clientX - activeDown.x, ev.clientY - activeDown.y) > TAP_MAX_MOVE) {
+        activeDown.moved = true;
+      }
+
+      if (!state.isDrawing || ev.pointerId !== activeStrokePointerId) return;
       const pt = getPixelFromPointerEvent(ev);
       const points = linePoints(lastPoint.x, lastPoint.y, pt.x, pt.y);
       let changed = false;
@@ -546,8 +681,29 @@
       lastPoint = pt;
     }, { passive: false });
 
-    paintCanvas.addEventListener("pointerup", finishDrawing, { passive: false });
-    paintCanvas.addEventListener("pointercancel", finishDrawing, { passive: false });
+    paintCanvas.addEventListener("pointerup", (ev) => {
+      ev.preventDefault();
+      activePointers.delete(ev.pointerId);
+      if (pinchMode && activePointers.size < 2) pinchMode = false;
+      if (ev.pointerId === activeStrokePointerId) {
+        finishDrawing(ev);
+        tryRegisterTap(ev);
+        activeStrokePointerId = null;
+        activeDown = null;
+      }
+    }, { passive: false });
+
+    paintCanvas.addEventListener("pointercancel", (ev) => {
+      ev.preventDefault();
+      activePointers.delete(ev.pointerId);
+      if (pinchMode && activePointers.size < 2) pinchMode = false;
+      if (ev.pointerId === activeStrokePointerId) {
+        finishDrawing(ev);
+        activeStrokePointerId = null;
+      }
+      activeDown = null;
+    }, { passive: false });
+
     paintCanvas.addEventListener("gesturestart", (ev) => ev.preventDefault(), { passive: false });
     paintCanvas.addEventListener("gesturechange", (ev) => ev.preventDefault(), { passive: false });
 
@@ -579,6 +735,11 @@
       else exportPNGSquare(Number(b.dataset.size));
     }));
 
+    const preventButtonGesture = (ev) => ev.preventDefault();
+    [ui.undoBtn, ui.redoBtn].forEach((btn) => {
+      btn.addEventListener("pointerdown", preventButtonGesture, { passive: false });
+      btn.addEventListener("touchend", preventButtonGesture, { passive: false });
+    });
     ui.undoBtn.addEventListener("click", undo);
     ui.redoBtn.addEventListener("click", redo);
 
