@@ -1,0 +1,910 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>GB Paint</title>
+  <style>
+    :root { --bg:#111; --panel:#1c1c1c; --text:#e9e9e9; --accent:#86c06c; --warn:#ffcc66; }
+    * { box-sizing: border-box; }
+    body { margin:0; background:var(--bg); color:var(--text); font-family: ui-sans-serif,system-ui,sans-serif; display:grid; grid-template-columns:340px 1fr; min-height:100vh; }
+    .panel { background:var(--panel); padding:12px; overflow:auto; border-right:1px solid #333; }
+    .top-row { display:flex; justify-content:space-between; align-items:center; gap:8px; }
+    h1 { margin:0 0 8px; font-size:1.2rem; }
+    h2 { margin:10px 0 6px; font-size:.95rem; }
+    .row { display:flex; gap:8px; flex-wrap:wrap; align-items:center; margin:6px 0; }
+    button, select, input[type="checkbox"] { background:#2b2b2b; color:var(--text); border:1px solid #444; border-radius:6px; padding:4px 8px; }
+    button.active { outline:2px solid var(--accent); }
+    button:disabled { opacity:.45; cursor:not-allowed; }
+    .swatch { width:28px; height:28px; border:2px solid #000; border-radius:4px; cursor:pointer; }
+    .meta { font-size:.88rem; opacity:.95; }
+    .warn { color:var(--warn); font-weight:700; }
+    .workspace { display:grid; place-items:center; padding:12px; overflow:auto; }
+    .canvas-wrap { position:relative; width:fit-content; height:fit-content; box-shadow:0 0 0 1px #444; background:#000; touch-action:none; user-select:none; -webkit-user-select:none; -webkit-touch-callout:none; }
+    canvas { image-rendering:pixelated; image-rendering:crisp-edges; display:block; touch-action:none; user-select:none; -webkit-user-select:none; -webkit-touch-callout:none; }
+    #overlayCanvas { position:absolute; left:0; top:0; pointer-events:none; touch-action:none; user-select:none; -webkit-user-select:none; -webkit-touch-callout:none; }
+    .header-actions { display:flex; gap:6px; align-items:center; touch-action:manipulation; -webkit-user-select:none; user-select:none; pointer-events:auto; }
+    .header-actions button { min-width:44px; min-height:44px; font-size:20px; font-weight:700; padding:0; touch-action:manipulation; -webkit-user-select:none; user-select:none; pointer-events:auto; }
+    details summary { cursor:pointer; }
+    #uniqueTilesList { display:grid; grid-template-columns:repeat(auto-fill,minmax(90px,1fr)); gap:8px; margin-top:8px; }
+    .tile-item { background:#262626; border:1px solid #3f3f3f; border-radius:6px; padding:4px; font-size:.75rem; }
+    .tile-item canvas { width:64px; height:64px; margin:0 auto; }
+    kbd { background:#333; border-radius:4px; padding:1px 4px; border:1px solid #444; }
+    @media (max-width:920px) { body { grid-template-columns:1fr; grid-template-rows:auto 1fr; } .panel { border-right:none; border-bottom:1px solid #333; } }
+  </style>
+</head>
+<body>
+  <aside class="panel">
+    <div class="top-row">
+      <h1>GB Paint</h1>
+      <div class="header-actions">
+        <button id="undoBtn" title="Undo">↶</button>
+        <button id="redoBtn" title="Redo">↷</button>
+        <label>
+          <span data-i18n="lang">言語</span>
+          <select id="langSelect">
+            <option value="ja">JP</option>
+            <option value="en">EN</option>
+          </select>
+        </label>
+      </div>
+    </div>
+    <div class="meta" id="subtitle"></div>
+
+    <h2 data-i18n="tools">ツール</h2>
+    <div class="row">
+      <button id="toolPen"></button>
+      <button id="toolEraser"></button>
+      <button id="toolFill"></button>
+    </div>
+
+    <h2 data-i18n="brushSize">ブラシサイズ</h2>
+    <div class="row" id="brushButtons">
+      <button data-size="1">1px</button>
+      <button data-size="2">2px</button>
+      <button data-size="4">4px</button>
+    </div>
+
+    <h2 data-i18n="palette">パレット</h2>
+    <div class="row" id="paletteRow"></div>
+
+    <h2 data-i18n="pattern">パターン塗り (P)</h2>
+    <div class="row">
+      <label><input type="checkbox" id="patternEnabled" /> <span data-i18n="enabled">有効</span></label>
+      <select id="patternType"></select>
+      <label><input type="checkbox" id="patternInvert" /> <span data-i18n="invert">反転</span></label>
+    </div>
+
+    <h2 data-i18n="display">表示</h2>
+    <div class="row">
+      <label><input type="checkbox" id="gridToggle" checked /> <span id="gridLabel"></span></label>
+      <label><input type="checkbox" id="tileSnapToggle" /> <span id="tileSnapLabel"></span></label>
+      <label><input type="checkbox" id="heatmapToggle" /> <span data-i18n="heatmap">ユニークタイル ヒートマップ</span></label>
+      <label><input type="checkbox" id="pencilOnlyToggle" /> <span data-i18n="pencilOnly">Apple Pencilのみ描画</span></label>
+      <button id="resetViewBtn" data-i18n="resetView">表示をリセット (R)</button>
+    </div>
+
+    <h2 data-i18n="tileStats">タイル統計</h2>
+    <div class="meta" id="tileStats"></div>
+    <div class="row">
+      <label><input type="checkbox" id="includeEmptyTiles" /> <span data-i18n="includeEmpty">空タイルをユニーク数に含める</span></label>
+    </div>
+    <div id="tileWarning" class="warn"></div>
+
+    <details>
+      <summary data-i18n="uniqueList">ユニークタイル一覧</summary>
+      <div id="uniqueTilesList"></div>
+    </details>
+
+    <h2 data-i18n="file">ファイル</h2>
+    <div class="row">
+      <button id="newBtn"></button>
+      <button id="saveJsonBtn"></button>
+      <button id="loadJsonBtn"></button>
+    </div>
+    <input type="file" id="jsonFileInput" accept="application/json" style="display:none" />
+
+    <h2 data-i18n="png">PNG書き出し</h2>
+    <div class="row" id="pngButtons">
+      <button data-kind="scale" data-scale="1">160x144</button>
+      <button data-kind="scale" data-scale="2">2x</button>
+      <button data-kind="scale" data-scale="3">3x</button>
+      <button data-kind="scale" data-scale="4">4x</button>
+      <button data-kind="scale" data-scale="8">8x</button>
+      <button data-kind="square" data-size="1080">1080</button>
+      <button data-kind="square" data-size="1024">1024</button>
+    </div>
+
+    <h2 data-i18n="shortcuts">ショートカット</h2>
+    <div class="meta" id="shortcuts"></div>
+  </aside>
+
+  <main class="workspace">
+    <div class="canvas-wrap" id="canvasWrap">
+      <canvas id="paintCanvas" width="160" height="144"></canvas>
+      <canvas id="overlayCanvas" width="160" height="144"></canvas>
+    </div>
+  </main>
+
+<script>
+(() => {
+  const W = 160, H = 144, TILE = 8, MAX_HISTORY = 100;
+  const palette = ["#071821", "#306850", "#86c06c", "#e0f8cf"];
+  const bgIndex = 3;
+
+  const STR = {
+    ja: {
+      lang: "言語", subtitle: "160x144 / 固定4色 / タイル制約可視化", tools: "ツール", brushSize: "ブラシサイズ", palette: "パレット",
+      pattern: "パターン塗り (P)", enabled: "有効", invert: "反転", display: "表示", grid: "8x8境界線 (Shift+G)", tileSnap: "8x8タイルスナップ (T)",
+      heatmap: "ユニークタイル ヒートマップ", pencilOnly: "Apple Pencilのみ描画", resetView: "表示をリセット (R)", tileStats: "タイル統計", includeEmpty: "空タイルをユニーク数に含める", uniqueList: "ユニークタイル一覧",
+      file: "ファイル", png: "PNG書き出し", shortcuts: "ショートカット", pen: "ペン (B)", eraser: "消しゴム (E)", fill: "塗りつぶし (G)",
+      newBtn: "新規", saveJson: "JSON保存", loadJson: "JSON読込",
+      tilesUsed: (n) => `Tiles used: ${n} / 360`, uniqueTiles: (n) => `Unique tiles: ${n} / 192`,
+      warnUnique: (n) => `⚠ Unique tiles exceed GB limit (192): ${n}`,
+      fillCount: (n) => `出現 ${n}回`,
+      confirmNew: "新規作成しますか？未保存の内容は失われます。", errLoad: (m) => `JSON読込エラー: ${m}`,
+      errSize: (w,h) => `サイズ不一致: ${w}x${h} (期待: 160x144)`, errPixelsMissing: "pixelsがありません", errPixelsInvalid: "pixels長が不正です",
+      sc1: "<kbd>1-4</kbd> 色選択 / <kbd>B</kbd>ペン / <kbd>E</kbd>消しゴム / <kbd>G</kbd>塗りつぶし / <kbd>P</kbd>パターン",
+      sc2: "<kbd>Shift+G</kbd>グリッド / <kbd>T</kbd>タイルスナップ / <kbd>[</kbd><kbd>]</kbd>ブラシサイズ",
+      sc3: "<kbd>Ctrl/Cmd+Z</kbd> Undo / <kbd>Ctrl/Cmd+Shift+Z</kbd> or <kbd>Ctrl+Y</kbd> Redo",
+      sc4: "<kbd>Ctrl/Cmd+S</kbd> JSON保存 / <kbd>Ctrl/Cmd+O</kbd> JSON読込 / <kbd>Ctrl/Cmd+N</kbd> 新規 / <kbd>Ctrl/Cmd+E</kbd> PNG"
+    },
+    en: {
+      lang: "Language", subtitle: "160x144 / fixed 4 colors / tile-limit aware", tools: "Tools", brushSize: "Brush Size", palette: "Palette",
+      pattern: "Pattern Paint (P)", enabled: "Enabled", invert: "Invert", display: "Display", grid: "8x8 Boundaries (Shift+G)", tileSnap: "8x8 Tile Snap (T)",
+      heatmap: "Unique Tile Heatmap", pencilOnly: "Draw with Apple Pencil only", resetView: "Reset View (R)", tileStats: "Tile Stats", includeEmpty: "Include empty tile in unique count", uniqueList: "Unique Tiles",
+      file: "File", png: "PNG Export", shortcuts: "Shortcuts", pen: "Pen (B)", eraser: "Eraser (E)", fill: "Fill (G)",
+      newBtn: "New", saveJson: "Save JSON", loadJson: "Load JSON",
+      tilesUsed: (n) => `Tiles used: ${n} / 360`, uniqueTiles: (n) => `Unique tiles: ${n} / 192`,
+      warnUnique: (n) => `⚠ Unique tiles exceed GB limit (192): ${n}`,
+      fillCount: (n) => `${n} uses`,
+      confirmNew: "Create new canvas? Unsaved content will be lost.", errLoad: (m) => `JSON load error: ${m}`,
+      errSize: (w,h) => `Size mismatch: ${w}x${h} (expected: 160x144)`, errPixelsMissing: "Missing pixels", errPixelsInvalid: "Invalid pixel length",
+      sc1: "<kbd>1-4</kbd> color / <kbd>B</kbd> pen / <kbd>E</kbd> eraser / <kbd>G</kbd> fill / <kbd>P</kbd> pattern",
+      sc2: "<kbd>Shift+G</kbd> grid / <kbd>T</kbd> tile snap / <kbd>[</kbd><kbd>]</kbd> brush size",
+      sc3: "<kbd>Ctrl/Cmd+Z</kbd> Undo / <kbd>Ctrl/Cmd+Shift+Z</kbd> or <kbd>Ctrl+Y</kbd> Redo",
+      sc4: "<kbd>Ctrl/Cmd+S</kbd> save JSON / <kbd>Ctrl/Cmd+O</kbd> load JSON / <kbd>Ctrl/Cmd+N</kbd> new / <kbd>Ctrl/Cmd+E</kbd> PNG"
+    }
+  };
+
+  const PATTERNS = [
+    { key:"d4_125", label:"4x4 12.5%", density:0.125 },
+    { key:"d4_25", label:"4x4 25%", density:0.25 },
+    { key:"d4_375", label:"4x4 37.5%", density:0.375 },
+    { key:"d4_50", label:"4x4 50%", density:0.5 },
+    { key:"d4_625", label:"4x4 62.5%", density:0.625 },
+    { key:"d4_75", label:"4x4 75%", density:0.75 },
+    { key:"d4_875", label:"4x4 87.5%", density:0.875 }
+  ];
+  const BAYER4 = [
+    [0, 8, 2,10],
+    [12,4,14,6],
+    [3,11,1,9],
+    [15,7,13,5],
+  ];
+
+  const state = {
+    pixels: new Uint8Array(W * H).fill(bgIndex), tool:"pen", brushSize:1, selectedColor:0,
+    showGrid:true, tileSnap:false, patternEnabled:false, patternType:"d4_50", patternInvert:false,
+    includeEmptyTiles:false, showHeatmap:false, lang: localStorage.getItem("gbpaint_lang") || "ja",
+    pencilOnly: localStorage.getItem("gbpaint_pencil_only") === "1",
+    isPinching:false, isPanning:false, isDrawing:false, pendingDraw:false,
+    strokeBefore:null, undoStack:[], redoStack:[],
+    fitScale: 1, viewScale: 1, viewOffsetX: 0, viewOffsetY: 0
+  };
+
+  const paintCanvas = document.getElementById("paintCanvas");
+  const paintCtx = paintCanvas.getContext("2d", { willReadFrequently: true });
+  const overlayCanvas = document.getElementById("overlayCanvas");
+  const overlayCtx = overlayCanvas.getContext("2d");
+
+  const ui = {
+    paletteRow: document.getElementById("paletteRow"),
+    brushButtons: [...document.querySelectorAll("#brushButtons button")],
+    patternEnabled: document.getElementById("patternEnabled"),
+    patternType: document.getElementById("patternType"),
+    patternInvert: document.getElementById("patternInvert"),
+    gridToggle: document.getElementById("gridToggle"),
+    tileSnapToggle: document.getElementById("tileSnapToggle"),
+    heatmapToggle: document.getElementById("heatmapToggle"),
+    pencilOnlyToggle: document.getElementById("pencilOnlyToggle"),
+    resetViewBtn: document.getElementById("resetViewBtn"),
+    includeEmptyTiles: document.getElementById("includeEmptyTiles"),
+    tileStats: document.getElementById("tileStats"),
+    tileWarning: document.getElementById("tileWarning"),
+    uniqueTilesList: document.getElementById("uniqueTilesList"),
+    jsonFileInput: document.getElementById("jsonFileInput"),
+    langSelect: document.getElementById("langSelect"),
+    undoBtn: document.getElementById("undoBtn"),
+    redoBtn: document.getElementById("redoBtn")
+  };
+
+  const activePointers = new Map();
+  let pinchMode = false;
+  let canvasGestureActive = false;
+  let pendingPointerId = null;
+  let pendingStartPixel = null;
+  let pinchStartDist = 0;
+  let pinchStartViewScale = 1;
+  let pinchStartOffsetX = 0;
+  let pinchStartOffsetY = 0;
+  let pinchStartTopLeft = { x: 0, y: 0 };
+  let pinchPivot = { x: 0, y: 0 };
+  let pinchStartCentroid = { x: 0, y: 0 };
+  let pinchPrevCentroid = { x: 0, y: 0 };
+  const MIN_VIEW_SCALE = 0.5;
+  const MAX_VIEW_SCALE = 16;
+  const TAP_MAX_MS = 320;
+  const TAP_MAX_MOVE = 12;
+  const TAP_CLUSTER_RADIUS = 30;
+  let tapInfo = { count: 0, time: 0, x: 0, y: 0 };
+  let activeStrokePointerId = null;
+  let activeDown = null;
+
+  function t(k, ...args) {
+    const v = STR[state.lang][k];
+    return typeof v === "function" ? v(...args) : v;
+  }
+
+  function updateI18n() {
+    document.querySelectorAll("[data-i18n]").forEach(el => el.textContent = t(el.dataset.i18n));
+    document.getElementById("subtitle").textContent = t("subtitle");
+    document.getElementById("gridLabel").textContent = t("grid");
+    document.getElementById("tileSnapLabel").textContent = t("tileSnap");
+    document.getElementById("toolPen").textContent = t("pen");
+    document.getElementById("toolEraser").textContent = t("eraser");
+    document.getElementById("toolFill").textContent = t("fill");
+    document.getElementById("newBtn").textContent = t("newBtn");
+    document.getElementById("saveJsonBtn").textContent = t("saveJson");
+    document.getElementById("loadJsonBtn").textContent = t("loadJson");
+    document.getElementById("shortcuts").innerHTML = `<div>${t("sc1")}</div><div>${t("sc2")}</div><div>${t("sc3")}</div><div>${t("sc4")}</div>`;
+  }
+
+  function resizeOverlayCanvas() {
+    const dpr = window.devicePixelRatio || 1;
+    const displayW = paintCanvas.clientWidth || W;
+    const displayH = paintCanvas.clientHeight || H;
+    overlayCanvas.style.width = `${displayW}px`;
+    overlayCanvas.style.height = `${displayH}px`;
+    overlayCanvas.width = Math.max(1, Math.round(displayW * dpr));
+    overlayCanvas.height = Math.max(1, Math.round(displayH * dpr));
+    return { dpr, displayW, displayH, scaleX: displayW / W, scaleY: displayH / H };
+  }
+
+  function clampViewOffset() {
+    const workspace = document.querySelector(".workspace");
+    const viewportW = workspace.clientWidth;
+    const viewportH = workspace.clientHeight;
+    const scaledW = W * state.fitScale * state.viewScale;
+    const scaledH = H * state.fitScale * state.viewScale;
+
+    const baseLeft = (viewportW - scaledW) / 2;
+    const baseTop = (viewportH - scaledH) / 2;
+
+    if (scaledW >= viewportW) {
+      const minOffsetX = baseLeft;
+      const maxOffsetX = -baseLeft;
+      state.viewOffsetX = Math.max(minOffsetX, Math.min(maxOffsetX, state.viewOffsetX));
+    } else {
+      state.viewOffsetX = 0;
+    }
+
+    if (scaledH >= viewportH) {
+      const minOffsetY = baseTop;
+      const maxOffsetY = -baseTop;
+      state.viewOffsetY = Math.max(minOffsetY, Math.min(maxOffsetY, state.viewOffsetY));
+    } else {
+      state.viewOffsetY = 0;
+    }
+  }
+
+  function applyViewTransform() {
+    clampViewOffset();
+    const displayScale = state.fitScale * state.viewScale;
+    const displayW = W * displayScale;
+    const displayH = H * displayScale;
+    paintCanvas.style.width = `${displayW}px`;
+    paintCanvas.style.height = `${displayH}px`;
+    const wrap = document.getElementById("canvasWrap");
+    wrap.style.transform = `translate(${state.viewOffsetX}px, ${state.viewOffsetY}px)`;
+    resizeOverlayCanvas();
+  }
+
+  function resetViewTransform() {
+    state.viewScale = 1;
+    state.viewOffsetX = 0;
+    state.viewOffsetY = 0;
+    state.isPanning = false;
+    applyViewTransform();
+    updateScaleBadge();
+    renderOverlay();
+  }
+
+  function updateScaleBadge() {
+    const b = document.getElementById("subtitle");
+    b.dataset.scale = `x${state.viewScale.toFixed(2).replace(/\.00$/, "")}`;
+  }
+
+  function updateScale() {
+    const panel = document.querySelector(".panel");
+    const panelW = window.innerWidth > 920 ? panel.offsetWidth : 0;
+    const panelH = window.innerWidth <= 920 ? panel.offsetHeight : 0;
+    const availW = Math.max(200, window.innerWidth - panelW - 32);
+    const availH = Math.max(200, window.innerHeight - panelH - 32);
+    state.fitScale = Math.max(1, Math.floor(Math.min(availW / W, availH / H)));
+    applyViewTransform();
+    updateScaleBadge();
+    renderOverlay();
+  }
+
+  function getPixelFromPointerEvent(ev) {
+    const rect = paintCanvas.getBoundingClientRect();
+    const nx = (ev.clientX - rect.left) / rect.width;
+    const ny = (ev.clientY - rect.top) / rect.height;
+    let x = Math.floor(nx * W);
+    let y = Math.floor(ny * H);
+    x = Math.max(0, Math.min(W - 1, x));
+    y = Math.max(0, Math.min(H - 1, y));
+    if (state.tileSnap) { x = Math.floor(x / TILE) * TILE; y = Math.floor(y / TILE) * TILE; }
+    return { x, y };
+  }
+
+  function patternShouldPaint(x, y) {
+    if (!state.patternEnabled) return true;
+    const cfg = PATTERNS.find(p => p.key === state.patternType) || PATTERNS[0];
+    let density = cfg.density;
+    if (state.patternInvert) density = 1 - density;
+    return (BAYER4[y % 4][x % 4] / 16) < density;
+  }
+
+  function setPixel(x, y, idx) {
+    const i = y * W + x;
+    if (state.pixels[i] === idx) return false;
+    state.pixels[i] = idx;
+    return true;
+  }
+
+  function drawBrush(cx, cy) {
+    const size = state.brushSize, half = Math.floor(size / 2);
+    const drawColor = state.tool === "eraser" ? bgIndex : state.selectedColor;
+    let changed = false;
+    for (let dy = 0; dy < size; dy++) for (let dx = 0; dx < size; dx++) {
+      const x = cx + dx - half, y = cy + dy - half;
+      if (x < 0 || y < 0 || x >= W || y >= H) continue;
+      if (!patternShouldPaint(x, y)) continue;
+      changed = setPixel(x, y, drawColor) || changed;
+    }
+    return changed;
+  }
+
+  function linePoints(x0, y0, x1, y1) {
+    const pts = []; const dx = Math.abs(x1-x0), dy = Math.abs(y1-y0), sx = x0 < x1 ? 1 : -1, sy = y0 < y1 ? 1 : -1;
+    let err = dx - dy;
+    while (true) {
+      pts.push([x0, y0]); if (x0 === x1 && y0 === y1) break;
+      const e2 = 2 * err; if (e2 > -dy) { err -= dy; x0 += sx; } if (e2 < dx) { err += dx; y0 += sy; }
+    }
+    return pts;
+  }
+
+  function floodFill(startX, startY) {
+    const target = state.pixels[startY * W + startX];
+    const replacement = state.selectedColor;
+    if (!state.patternEnabled && target === replacement) return false;
+
+    const visited = new Uint8Array(W * H);
+    const stack = [[startX, startY]];
+    const region = [];
+
+    while (stack.length) {
+      const [x, y] = stack.pop();
+      const i = y * W + x;
+      if (visited[i]) continue;
+      visited[i] = 1;
+      if (state.pixels[i] !== target) continue;
+      region.push([x, y]);
+
+      if (x > 0) stack.push([x - 1, y]);
+      if (x < W - 1) stack.push([x + 1, y]);
+      if (y > 0) stack.push([x, y - 1]);
+      if (y < H - 1) stack.push([x, y + 1]);
+    }
+
+    let changed = false;
+    for (const [x, y] of region) {
+      if (state.patternEnabled && !patternShouldPaint(x, y)) continue;
+      changed = setPixel(x, y, replacement) || changed;
+    }
+    return changed;
+  }
+
+  function beginStroke() { state.strokeBefore = state.pixels.slice(); }
+  function endStroke() {
+    if (!state.strokeBefore) return;
+    let changed = false;
+    for (let i = 0; i < state.pixels.length; i++) if (state.strokeBefore[i] !== state.pixels[i]) { changed = true; break; }
+    if (changed) {
+      state.undoStack.push(state.strokeBefore);
+      if (state.undoStack.length > MAX_HISTORY) state.undoStack.shift();
+      state.redoStack.length = 0;
+    }
+    state.strokeBefore = null;
+    updateUndoRedoButtons();
+  }
+
+  function renderCanvas() {
+    const img = paintCtx.createImageData(W, H);
+    for (let i = 0; i < state.pixels.length; i++) {
+      const c = palette[state.pixels[i]], p = i * 4;
+      img.data[p] = parseInt(c.slice(1,3),16); img.data[p+1] = parseInt(c.slice(3,5),16); img.data[p+2] = parseInt(c.slice(5,7),16); img.data[p+3] = 255;
+    }
+    paintCtx.putImageData(img, 0, 0);
+    updateTileInfo();
+  }
+
+  function renderOverlay(freqMap = null) {
+    const { dpr, displayW, displayH, scaleX, scaleY } = resizeOverlayCanvas();
+    overlayCtx.setTransform(1, 0, 0, 1, 0, 0);
+    overlayCtx.clearRect(0, 0, overlayCanvas.width, overlayCanvas.height);
+    overlayCtx.scale(dpr, dpr);
+
+    if (state.showHeatmap) {
+      const freq = freqMap || computeTileData().freqMap;
+      for (const tile of freq.values()) {
+        const alpha = tile.count === 1 ? 0.10 : tile.count <= 3 ? 0.18 : tile.count <= 7 ? 0.26 : tile.count <= 15 ? 0.34 : 0.42;
+        overlayCtx.fillStyle = `rgba(255,64,64,${alpha})`;
+        for (const [tx, ty] of tile.positions) {
+          overlayCtx.fillRect(tx * TILE * scaleX, ty * TILE * scaleY, TILE * scaleX, TILE * scaleY);
+        }
+      }
+    }
+
+    if (state.showGrid) {
+      overlayCtx.strokeStyle = "rgba(255,0,0,0.18)";
+      overlayCtx.lineWidth = 1;
+      overlayCtx.beginPath();
+      for (let tx = 0; tx <= W; tx += TILE) {
+        const x = Math.round(tx * scaleX) + 0.5;
+        overlayCtx.moveTo(x, 0);
+        overlayCtx.lineTo(x, displayH);
+      }
+      for (let ty = 0; ty <= H; ty += TILE) {
+        const y = Math.round(ty * scaleY) + 0.5;
+        overlayCtx.moveTo(0, y);
+        overlayCtx.lineTo(displayW, y);
+      }
+      overlayCtx.stroke();
+    }
+  }
+
+  function undo() { const prev = state.undoStack.pop(); if (!prev) return; state.redoStack.push(state.pixels.slice()); state.pixels = prev; renderCanvas(); updateUndoRedoButtons(); }
+  function redo() { const next = state.redoStack.pop(); if (!next) return; state.undoStack.push(state.pixels.slice()); state.pixels = next; renderCanvas(); updateUndoRedoButtons(); }
+  function updateUndoRedoButtons() { ui.undoBtn.disabled = state.undoStack.length === 0; ui.redoBtn.disabled = state.redoStack.length === 0; }
+
+  function encodePixelsBase64() { let s = ""; for (let i = 0; i < state.pixels.length; i++) s += String.fromCharCode(state.pixels[i]); return btoa(s); }
+  function decodePixelsBase64(encoded) { const raw = atob(encoded); const arr = new Uint8Array(raw.length); for (let i = 0; i < raw.length; i++) arr[i] = raw.charCodeAt(i); return arr; }
+
+  function downloadBlob(blob, name) { const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = name; a.click(); URL.revokeObjectURL(a.href); }
+  function saveJSON() {
+    const payload = { version:1, w:W, h:H, palette, bgIndex, pixels:encodePixelsBase64(), meta:{ tool:state.tool, brushSize:state.brushSize, selectedColor:state.selectedColor, patternEnabled:state.patternEnabled, patternType:state.patternType, patternInvert:state.patternInvert, lang:state.lang } };
+    downloadBlob(new Blob([JSON.stringify(payload)], { type:"application/json" }), `gbpaint-${Date.now()}.json`);
+  }
+  function loadJSONFromText(text) {
+    const data = JSON.parse(text);
+    if (data.w !== W || data.h !== H) throw new Error(t("errSize", data.w, data.h));
+    if (!data.pixels) throw new Error(t("errPixelsMissing"));
+    const arr = decodePixelsBase64(data.pixels);
+    if (arr.length !== W * H) throw new Error(t("errPixelsInvalid"));
+    state.pixels = arr; state.undoStack.length = 0; state.redoStack.length = 0;
+    if (data.meta?.lang && STR[data.meta.lang]) { state.lang = data.meta.lang; ui.langSelect.value = state.lang; localStorage.setItem("gbpaint_lang", state.lang); updateI18n(); }
+    renderCanvas(); updateUndoRedoButtons();
+  }
+  function newCanvas() { if (!confirm(t("confirmNew"))) return; state.pixels = new Uint8Array(W * H).fill(bgIndex); state.undoStack.length = 0; state.redoStack.length = 0; renderCanvas(); updateUndoRedoButtons(); }
+
+  function exportPNGScale(scale) {
+    const out = document.createElement("canvas"); out.width = W * scale; out.height = H * scale;
+    const ctx = out.getContext("2d"); ctx.imageSmoothingEnabled = false; ctx.drawImage(paintCanvas, 0, 0, out.width, out.height);
+    out.toBlob(b => downloadBlob(b, `gbpaint-${W}x${H}-x${scale}.png`));
+  }
+  function exportPNGSquare(size) {
+    const out = document.createElement("canvas"); out.width = size; out.height = size;
+    const ctx = out.getContext("2d"); ctx.imageSmoothingEnabled = false; ctx.fillStyle = palette[bgIndex]; ctx.fillRect(0, 0, size, size);
+    const scale = Math.floor(Math.min(size / W, size / H)), dw = W * scale, dh = H * scale, ox = Math.floor((size - dw) / 2), oy = Math.floor((size - dh) / 2);
+    ctx.drawImage(paintCanvas, 0, 0, dw, dh, ox, oy, dw, dh);
+    out.toBlob(b => downloadBlob(b, `gbpaint-${size}square.png`));
+  }
+
+  function tileKey(tx, ty) { let s = ""; for (let y = 0; y < TILE; y++) for (let x = 0; x < TILE; x++) s += String.fromCharCode(state.pixels[(ty*TILE+y)*W + (tx*TILE+x)] + 48); return s; }
+  function computeTileData() {
+    const tilesX = W / TILE, tilesY = H / TILE, bgCode = String.fromCharCode(bgIndex + 48); let nonEmpty = 0; const freqMap = new Map();
+    for (let ty = 0; ty < tilesY; ty++) for (let tx = 0; tx < tilesX; tx++) {
+      const key = tileKey(tx, ty); let isEmpty = true; for (let i = 0; i < key.length; i++) if (key[i] !== bgCode) { isEmpty = false; break; }
+      if (!isEmpty) nonEmpty++; if (!state.includeEmptyTiles && isEmpty) continue;
+      if (!freqMap.has(key)) freqMap.set(key, { count: 0, positions: [] });
+      const rec = freqMap.get(key); rec.count++; rec.positions.push([tx, ty]);
+    }
+    return { nonEmpty, unique: freqMap.size, freqMap };
+  }
+  function renderUniqueTileList(freqMap) {
+    ui.uniqueTilesList.innerHTML = "";
+    let idx = 0;
+    for (const [key, rec] of freqMap.entries()) {
+      if (idx++ >= 120) break;
+      const item = document.createElement("div"); item.className = "tile-item";
+      const c = document.createElement("canvas"); c.width = TILE; c.height = TILE;
+      const cctx = c.getContext("2d"); const img = cctx.createImageData(TILE, TILE);
+      for (let i = 0; i < key.length; i++) {
+        const p = key.charCodeAt(i) - 48, col = palette[p], o = i * 4;
+        img.data[o] = parseInt(col.slice(1,3),16); img.data[o+1] = parseInt(col.slice(3,5),16); img.data[o+2] = parseInt(col.slice(5,7),16); img.data[o+3] = 255;
+      }
+      cctx.putImageData(img,0,0);
+      const txt = document.createElement("div"); txt.textContent = t("fillCount", rec.count);
+      item.append(c, txt); ui.uniqueTilesList.append(item);
+    }
+  }
+  function updateTileInfo() {
+    const data = computeTileData();
+    ui.tileStats.textContent = `${t("tilesUsed", data.nonEmpty)} | ${t("uniqueTiles", data.unique)}`;
+    ui.tileWarning.textContent = data.unique > 192 ? t("warnUnique", data.unique) : "";
+    renderUniqueTileList(data.freqMap); renderOverlay(data.freqMap);
+  }
+
+  function isTypingTarget(el) { return !!el && (el.isContentEditable || ["INPUT","TEXTAREA","SELECT"].includes(el.tagName)); }
+  function selectColor(idx) { state.selectedColor = idx; [...ui.paletteRow.children].forEach((c, i) => c.style.outline = i === idx ? "2px solid #fff" : "none"); }
+
+  function syncUI() {
+    document.getElementById("toolPen").classList.toggle("active", state.tool === "pen");
+    document.getElementById("toolEraser").classList.toggle("active", state.tool === "eraser");
+    document.getElementById("toolFill").classList.toggle("active", state.tool === "fill");
+    ui.brushButtons.forEach(b => b.classList.toggle("active", Number(b.dataset.size) === state.brushSize));
+    ui.patternEnabled.checked = state.patternEnabled; ui.patternType.value = state.patternType; ui.patternInvert.checked = state.patternInvert;
+    ui.gridToggle.checked = state.showGrid; ui.tileSnapToggle.checked = state.tileSnap; ui.heatmapToggle.checked = state.showHeatmap; ui.pencilOnlyToggle.checked = state.pencilOnly; ui.includeEmptyTiles.checked = state.includeEmptyTiles;
+    selectColor(state.selectedColor); updateUndoRedoButtons();
+  }
+
+  function getPointerDistance(a, b) {
+    const dx = a.clientX - b.clientX;
+    const dy = a.clientY - b.clientY;
+    return Math.hypot(dx, dy);
+  }
+
+  function getPointerMid(a, b) {
+    return { x: (a.clientX + b.clientX) / 2, y: (a.clientY + b.clientY) / 2 };
+  }
+
+  function beginPinch() {
+    const pts = [...activePointers.values()];
+    if (pts.length < 2) return;
+    pinchMode = true;
+    state.isPinching = true;
+    state.pendingDraw = false;
+    pendingPointerId = null;
+    pendingStartPixel = null;
+    updateCanvasGestureBlock();
+    const a = pts[0], b = pts[1];
+    pinchStartDist = Math.max(1, getPointerDistance(a, b));
+    pinchStartViewScale = state.viewScale;
+    pinchStartOffsetX = state.viewOffsetX;
+    pinchStartOffsetY = state.viewOffsetY;
+    pinchPivot = getPointerMid(a, b);
+    pinchStartCentroid = pinchPivot;
+    pinchPrevCentroid = pinchPivot;
+    const rect = paintCanvas.getBoundingClientRect();
+    pinchStartTopLeft = { x: rect.left, y: rect.top };
+
+    if (state.isDrawing) {
+      state.isDrawing = false;
+      lastPoint = null;
+      endStroke();
+    }
+    activeDown = null;
+  }
+
+  function updatePinch() {
+    const pts = [...activePointers.values()];
+    if (pts.length < 2) return;
+    const a = pts[0], b = pts[1];
+    const centroid = getPointerMid(a, b);
+    const dist = Math.max(1, getPointerDistance(a, b));
+
+    const ratio = dist / pinchStartDist;
+    const nextViewScale = Math.max(MIN_VIEW_SCALE, Math.min(MAX_VIEW_SCALE, pinchStartViewScale * ratio));
+    const scaleRatio = nextViewScale / pinchStartViewScale;
+
+    const panDx = centroid.x - pinchStartCentroid.x;
+    const panDy = centroid.y - pinchStartCentroid.y;
+    state.isPanning = Math.abs(centroid.x - pinchPrevCentroid.x) > 0.1 || Math.abs(centroid.y - pinchPrevCentroid.y) > 0.1;
+
+    state.viewScale = nextViewScale;
+    state.viewOffsetX = pinchPivot.x - (pinchPivot.x - pinchStartOffsetX) * scaleRatio + panDx;
+    state.viewOffsetY = pinchPivot.y - (pinchPivot.y - pinchStartOffsetY) * scaleRatio + panDy;
+
+    pinchPrevCentroid = centroid;
+    applyViewTransform();
+    updateScaleBadge();
+    renderOverlay();
+  }
+
+  function tryRegisterTap(ev) {
+    if (state.tool === "fill") return;
+    if (!activeDown || activeDown.moved || activeDown.pointerType === "mouse" || state.isPinching) return;
+    const dt = performance.now() - activeDown.time;
+    if (dt > TAP_MAX_MS) return;
+
+    const closeInTime = performance.now() - tapInfo.time <= 350;
+    const closeInSpace = Math.hypot(ev.clientX - tapInfo.x, ev.clientY - tapInfo.y) <= TAP_CLUSTER_RADIUS;
+    tapInfo.count = (closeInTime && closeInSpace) ? tapInfo.count + 1 : 1;
+    tapInfo.time = performance.now();
+    tapInfo.x = ev.clientX; tapInfo.y = ev.clientY;
+
+    if (tapInfo.count === 2) {
+      undo();
+    } else if (tapInfo.count >= 3) {
+      redo();
+      tapInfo.count = 0;
+    }
+  }
+
+
+  function canDrawWithPointerType(pointerType) {
+    if (!state.pencilOnly) return true;
+    return pointerType === "pen" || pointerType === "mouse";
+  }
+
+  function updateCanvasGestureBlock() {
+    const shouldBlock = state.isDrawing || state.pendingDraw || state.isPinching;
+    if (shouldBlock && !canvasGestureActive) {
+      canvasGestureActive = true;
+      document.addEventListener("touchmove", preventScroll, { passive: false });
+    } else if (!shouldBlock && canvasGestureActive) {
+      canvasGestureActive = false;
+      document.removeEventListener("touchmove", preventScroll);
+    }
+  }
+
+  const preventScroll = (ev) => {
+    if (canvasGestureActive) ev.preventDefault();
+  };
+
+
+  function finishDrawing(ev) {
+    if (ev) ev.preventDefault();
+    if (ev && paintCanvas.hasPointerCapture && paintCanvas.hasPointerCapture(ev.pointerId)) {
+      try { paintCanvas.releasePointerCapture(ev.pointerId); } catch (_) {}
+    }
+    if (!state.isDrawing) { updateCanvasGestureBlock(); return; }
+    state.isDrawing = false;
+    lastPoint = null;
+    endStroke();
+    updateCanvasGestureBlock();
+  }
+
+  let lastPoint = null;
+  function setupUI() {
+    ui.langSelect.value = STR[state.lang] ? state.lang : "ja";
+    if (!STR[state.lang]) state.lang = "ja";
+
+    PATTERNS.forEach(p => { const opt = document.createElement("option"); opt.value = p.key; opt.textContent = p.label; ui.patternType.append(opt); });
+    palette.forEach((hex, i) => { const b = document.createElement("button"); b.className = "swatch"; b.style.background = hex; b.title = `${i+1}`; b.addEventListener("click", () => { state.tool = "pen"; selectColor(i); syncUI(); }); ui.paletteRow.append(b); });
+
+    paintCanvas.addEventListener("pointerdown", (ev) => {
+      ev.preventDefault();
+      if (ev.pointerType === "mouse" && ev.button !== 0) return;
+
+      activePointers.set(ev.pointerId, { clientX: ev.clientX, clientY: ev.clientY, pointerType: ev.pointerType });
+      paintCanvas.setPointerCapture(ev.pointerId);
+
+      activeDown = { x: ev.clientX, y: ev.clientY, time: performance.now(), moved: false, pointerType: ev.pointerType };
+
+      if (activePointers.size >= 2) {
+        beginPinch();
+        return;
+      }
+
+      if (!canDrawWithPointerType(ev.pointerType)) {
+        state.pendingDraw = false;
+        pendingPointerId = null;
+        pendingStartPixel = null;
+        updateCanvasGestureBlock();
+        return;
+      }
+
+      const pt = getPixelFromPointerEvent(ev);
+      activeStrokePointerId = ev.pointerId;
+      state.pendingDraw = true;
+      pendingPointerId = ev.pointerId;
+      pendingStartPixel = pt;
+      updateCanvasGestureBlock();
+    }, { passive: false });
+
+    paintCanvas.addEventListener("pointermove", (ev) => {
+      ev.preventDefault();
+      if (activePointers.has(ev.pointerId)) {
+        activePointers.set(ev.pointerId, { clientX: ev.clientX, clientY: ev.clientY, pointerType: ev.pointerType });
+      }
+
+      if (pinchMode || activePointers.size >= 2) {
+        if (!pinchMode && activePointers.size >= 2) beginPinch();
+        if (pinchMode) updatePinch();
+        return;
+      }
+
+      if (activeDown && Math.hypot(ev.clientX - activeDown.x, ev.clientY - activeDown.y) > TAP_MAX_MOVE) {
+        activeDown.moved = true;
+      }
+
+      if (state.pendingDraw && ev.pointerId === pendingPointerId) {
+        const moved = Math.hypot(ev.clientX - activeDown.x, ev.clientY - activeDown.y) > 3;
+        if (moved) {
+          if (state.tool !== "fill") {
+            state.pendingDraw = false;
+            state.isDrawing = true;
+            beginStroke();
+            drawBrush(pendingStartPixel.x, pendingStartPixel.y);
+            const pt = getPixelFromPointerEvent(ev);
+            const pts = linePoints(pendingStartPixel.x, pendingStartPixel.y, pt.x, pt.y);
+            let changed = false;
+            for (const [x, y] of pts) changed = drawBrush(x, y) || changed;
+            if (changed) renderCanvas();
+            lastPoint = pt;
+            updateCanvasGestureBlock();
+          } else {
+            state.pendingDraw = false;
+            pendingPointerId = null;
+            pendingStartPixel = null;
+            updateCanvasGestureBlock();
+          }
+        }
+      }
+
+      if (!state.isDrawing || ev.pointerId !== activeStrokePointerId) return;
+      const pt = getPixelFromPointerEvent(ev);
+      const points = linePoints(lastPoint.x, lastPoint.y, pt.x, pt.y);
+      let changed = false;
+      for (const [x,y] of points) changed = drawBrush(x, y) || changed;
+      if (changed) renderCanvas();
+      lastPoint = pt;
+    }, { passive: false });
+
+    paintCanvas.addEventListener("pointerup", (ev) => {
+      ev.preventDefault();
+      activePointers.delete(ev.pointerId);
+      if (pinchMode && activePointers.size < 2) {
+        pinchMode = false;
+        state.isPinching = false;
+        state.isPanning = false;
+      }
+
+      if (ev.pointerId === activeStrokePointerId && state.isDrawing) {
+        finishDrawing(ev);
+      } else if (state.pendingDraw && ev.pointerId === pendingPointerId) {
+        const pt = pendingStartPixel || getPixelFromPointerEvent(ev);
+        state.pendingDraw = false;
+        if (state.tool === "fill" && canDrawWithPointerType(ev.pointerType)) {
+          beginStroke();
+          if (floodFill(pt.x, pt.y)) renderCanvas();
+          endStroke();
+        }
+      }
+
+      tryRegisterTap(ev);
+
+      if (paintCanvas.hasPointerCapture && paintCanvas.hasPointerCapture(ev.pointerId)) {
+        try { paintCanvas.releasePointerCapture(ev.pointerId); } catch (_) {}
+      }
+
+      if (ev.pointerId === activeStrokePointerId) activeStrokePointerId = null;
+      if (ev.pointerId === pendingPointerId) {
+        pendingPointerId = null;
+        pendingStartPixel = null;
+      }
+      activeDown = null;
+      updateCanvasGestureBlock();
+    }, { passive: false });
+
+    paintCanvas.addEventListener("pointercancel", (ev) => {
+      ev.preventDefault();
+      activePointers.delete(ev.pointerId);
+      if (pinchMode && activePointers.size < 2) {
+        pinchMode = false;
+        state.isPinching = false;
+        state.isPanning = false;
+      }
+      if (ev.pointerId === activeStrokePointerId) {
+        finishDrawing(ev);
+        activeStrokePointerId = null;
+      }
+      if (ev.pointerId === pendingPointerId) {
+        state.pendingDraw = false;
+        pendingPointerId = null;
+        pendingStartPixel = null;
+      }
+      activeDown = null;
+      updateCanvasGestureBlock();
+    }, { passive: false });
+
+    paintCanvas.addEventListener("gesturestart", (ev) => ev.preventDefault(), { passive: false });
+    paintCanvas.addEventListener("gesturechange", (ev) => ev.preventDefault(), { passive: false });
+
+    document.getElementById("toolPen").addEventListener("click", () => { state.tool = "pen"; syncUI(); });
+    document.getElementById("toolEraser").addEventListener("click", () => { state.tool = "eraser"; syncUI(); });
+    document.getElementById("toolFill").addEventListener("click", () => { state.tool = "fill"; syncUI(); });
+    ui.brushButtons.forEach(b => b.addEventListener("click", () => { state.brushSize = Number(b.dataset.size); syncUI(); }));
+
+    ui.patternEnabled.addEventListener("change", () => { state.patternEnabled = ui.patternEnabled.checked; syncUI(); });
+    ui.patternType.addEventListener("change", () => { state.patternType = ui.patternType.value; syncUI(); });
+    ui.patternInvert.addEventListener("change", () => { state.patternInvert = ui.patternInvert.checked; syncUI(); });
+    ui.gridToggle.addEventListener("change", () => { state.showGrid = ui.gridToggle.checked; renderOverlay(); });
+    ui.tileSnapToggle.addEventListener("change", () => { state.tileSnap = ui.tileSnapToggle.checked; syncUI(); });
+    ui.heatmapToggle.addEventListener("change", () => { state.showHeatmap = ui.heatmapToggle.checked; renderOverlay(); });
+    ui.pencilOnlyToggle.addEventListener("change", () => { state.pencilOnly = ui.pencilOnlyToggle.checked; localStorage.setItem("gbpaint_pencil_only", state.pencilOnly ? "1" : "0"); syncUI(); });
+    ui.resetViewBtn.addEventListener("click", resetViewTransform);
+    ui.includeEmptyTiles.addEventListener("change", () => { state.includeEmptyTiles = ui.includeEmptyTiles.checked; updateTileInfo(); });
+
+    document.getElementById("newBtn").addEventListener("click", newCanvas);
+    document.getElementById("saveJsonBtn").addEventListener("click", saveJSON);
+    document.getElementById("loadJsonBtn").addEventListener("click", () => ui.jsonFileInput.click());
+    ui.jsonFileInput.addEventListener("change", async (ev) => {
+      const file = ev.target.files[0]; if (!file) return;
+      try { loadJSONFromText(await file.text()); }
+      catch (err) { alert(t("errLoad", err.message)); }
+      finally { ev.target.value = ""; }
+    });
+
+    document.querySelectorAll("#pngButtons button").forEach(b => b.addEventListener("click", () => {
+      if (b.dataset.kind === "scale") exportPNGScale(Number(b.dataset.scale));
+      else exportPNGSquare(Number(b.dataset.size));
+    }));
+
+    const bindHeaderAction = (btn, action) => {
+      btn.addEventListener("pointerdown", (ev) => ev.preventDefault(), { passive: false });
+      btn.addEventListener("touchend", (ev) => ev.preventDefault(), { passive: false });
+      btn.addEventListener("pointerup", (ev) => { ev.preventDefault(); action(); }, { passive: false });
+    };
+    bindHeaderAction(ui.undoBtn, undo);
+    bindHeaderAction(ui.redoBtn, redo);
+
+    ui.langSelect.addEventListener("change", () => {
+      state.lang = ui.langSelect.value;
+      localStorage.setItem("gbpaint_lang", state.lang);
+      updateI18n();
+      updateTileInfo();
+    });
+
+    window.addEventListener("keydown", (ev) => {
+      if (isTypingTarget(document.activeElement)) return;
+      const mod = ev.ctrlKey || ev.metaKey;
+      const key = ev.key.toLowerCase();
+
+      if (mod && key === "z") { ev.preventDefault(); if (ev.shiftKey) redo(); else undo(); return; }
+      if (ev.ctrlKey && key === "y") { ev.preventDefault(); redo(); return; }
+      if (mod && key === "s") { ev.preventDefault(); saveJSON(); return; }
+      if (mod && key === "o") { ev.preventDefault(); ui.jsonFileInput.click(); return; }
+      if (mod && key === "n") { ev.preventDefault(); newCanvas(); return; }
+      if (mod && key === "e") { ev.preventDefault(); exportPNGScale(1); return; }
+
+      if (key >= "1" && key <= "4") { selectColor(Number(key) - 1); state.tool = "pen"; syncUI(); return; }
+      if (key === "b") { state.tool = "pen"; syncUI(); return; }
+      if (key === "e") { state.tool = "eraser"; syncUI(); return; }
+      if (key === "g" && !ev.shiftKey) { state.tool = "fill"; syncUI(); return; }
+      if (key === "p") { state.patternEnabled = !state.patternEnabled; syncUI(); return; }
+      if (key === "t") { state.tileSnap = !state.tileSnap; syncUI(); return; }
+      if (key === "g" && ev.shiftKey) { state.showGrid = !state.showGrid; syncUI(); renderOverlay(); return; }
+      if (key === "r") { resetViewTransform(); return; }
+      if (key === "[") { state.brushSize = [1,2,4][Math.max(0, [1,2,4].indexOf(state.brushSize)-1)]; syncUI(); return; }
+      if (key === "]") { state.brushSize = [1,2,4][Math.min(2, [1,2,4].indexOf(state.brushSize)+1)]; syncUI(); return; }
+    });
+
+    window.addEventListener("resize", updateScale);
+
+    updateI18n();
+    syncUI();
+    updateScale();
+    renderCanvas();
+  }
+
+  setupUI();
+})();
+</script>
+</body>
+</html>
