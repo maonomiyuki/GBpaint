@@ -5,14 +5,13 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
   <title>GB Paint</title>
   <style>
-    :root { --bg:#111; --panel:#1c1c1c; --text:#e9e9e9; --accent:#86c06c; --warn:#ffcc66; }
+    :root { --bg:#111; --panel:#1c1c1c; --text:#e9e9e9; --accent:#86c06c; --warn:#ffcc66; --mobile-topbar-h:56px; }
     * { box-sizing: border-box; }
     body { margin:0; background:var(--bg); color:var(--text); font-family: ui-sans-serif,system-ui,sans-serif; height:100dvh; overflow:hidden; }
-    #appRoot { display:grid; grid-template-columns:minmax(280px,340px) 1fr; height:100dvh; width:100%; }
+    #appRoot { display:grid; grid-template-columns:340px 1fr; height:100dvh; width:100%; }
     .panel { background:var(--panel); padding:12px; overflow-y:auto; overflow-x:hidden; border-right:1px solid #333; min-height:0; }
     .top-row { display:flex; justify-content:space-between; align-items:center; gap:8px; }
     h1 { margin:0 0 8px; font-size:1.2rem; }
-    h2 { margin:10px 0 6px; font-size:.95rem; }
     .row { display:flex; gap:8px; flex-wrap:wrap; align-items:center; margin:6px 0; }
     button, select, input[type="checkbox"] { background:#2b2b2b; color:var(--text); border:1px solid #444; border-radius:6px; padding:4px 8px; }
     button.active { outline:2px solid var(--accent); }
@@ -24,31 +23,68 @@
     .canvas-wrap { position:absolute; left:0; top:0; width:fit-content; height:fit-content; box-shadow:0 0 0 1px #444; background:#000; touch-action:none; user-select:none; -webkit-user-select:none; -webkit-touch-callout:none; cursor:crosshair; }
     .canvas-wrap.mouse-pan { cursor:grabbing; }
     canvas { image-rendering:pixelated; image-rendering:crisp-edges; display:block; touch-action:none; user-select:none; -webkit-user-select:none; -webkit-touch-callout:none; }
-    #guideCanvas { position:absolute; left:0; top:0; width:100%; height:100%; pointer-events:none; touch-action:none; user-select:none; -webkit-user-select:none; -webkit-touch-callout:none; z-index:2; }
+    #guideCanvas { position:absolute; left:0; top:0; width:100%; height:100%; pointer-events:none; z-index:2; }
     #paintCanvas { position:relative; z-index:1; }
-    #overlayCanvas { position:absolute; left:0; top:0; pointer-events:none; touch-action:none; user-select:none; -webkit-user-select:none; -webkit-touch-callout:none; z-index:3; }
-    .header-actions { display:flex; gap:6px; align-items:center; touch-action:manipulation; -webkit-user-select:none; user-select:none; pointer-events:auto; }
-    .header-actions button { min-width:44px; min-height:44px; font-size:20px; font-weight:700; padding:0; touch-action:manipulation; -webkit-user-select:none; user-select:none; pointer-events:auto; }
+    #overlayCanvas { position:absolute; left:0; top:0; pointer-events:none; z-index:3; }
+    .header-actions { display:flex; gap:6px; align-items:center; }
+    .header-actions button { min-width:44px; min-height:44px; font-size:20px; font-weight:700; padding:0; }
     #polygonConfirmBtn { min-width:34px; min-height:34px; font-size:18px; background:#1f4f2d; border-color:#4f9a6f; }
     details summary { cursor:pointer; }
     #uniqueTilesList { display:grid; grid-template-columns:repeat(auto-fill,minmax(90px,1fr)); gap:8px; margin-top:8px; }
     .tile-item { background:#262626; border:1px solid #3f3f3f; border-radius:6px; padding:4px; font-size:.75rem; }
     .tile-item canvas { width:64px; height:64px; margin:0 auto; }
     kbd { background:#333; border-radius:4px; padding:1px 4px; border:1px solid #444; }
-    @media (max-width:700px) { #appRoot { grid-template-columns:minmax(240px,300px) 1fr; } }
-  </style>
+    #mobileTopbar, #sidebarBackdrop { display:none; }
+
+    @media (min-width:600px) and (max-width:1023px) {
+      #appRoot { grid-template-columns:280px 1fr; }
+    }
+
+    @media (max-width:599px) {
+      #appRoot { display:block; height:100dvh; }
+      #mobileTopbar { position:fixed; left:0; top:0; right:0; z-index:20; display:flex; align-items:center; justify-content:space-between; gap:8px; min-height:var(--mobile-topbar-h); padding:calc(8px + env(safe-area-inset-top)) 10px 8px; background:#1a1a1a; border-bottom:1px solid #333; }
+      #mobileTopbar .title-wrap { display:flex; align-items:center; gap:8px; min-width:0; }
+      #mobileTopbar .title { font-weight:700; white-space:nowrap; }
+      #mobileTopbar .mini-actions { display:flex; gap:6px; }
+      #mobileTopbar button, #mobileTopbar select { min-height:36px; padding:4px 10px; }
+      #mobileTopbar .icon-btn { min-width:36px; font-size:18px; padding:0; }
+
+      #stage { position:fixed; inset:0; top:calc(var(--mobile-topbar-h) + env(safe-area-inset-top)); z-index:1; }
+      #stage.blocked { pointer-events:none; }
+      .workspace { padding:8px; }
+
+      #sidebarBackdrop { position:fixed; inset:0; z-index:24; background:rgba(0,0,0,.45); }
+      #sidebar { position:fixed; left:0; right:0; bottom:0; top:auto; z-index:25; border-right:none; border-top:1px solid #333; border-radius:14px 14px 0 0; max-height:min(80dvh, 680px); padding:10px 12px calc(12px + env(safe-area-inset-bottom)); transform:translateY(102%); transition:transform .2s ease; }
+      #sidebar .top-row { display:none; }
+      body.ui-open #sidebar { transform:translateY(0); }
+      body.ui-open #sidebarBackdrop { display:block; }
+    }
+</style>
 </head>
 <body>
+  <header id="mobileTopbar">
+    <button id="mobileMenuBtn" class="icon-btn" data-i18n-title="mobile.menuTitle">☰</button>
+    <div class="title-wrap">
+      <span class="title">GB Paint</span>
+      <button id="mobileLangBtn"></button>
+    </div>
+    <div class="mini-actions">
+      <button id="mobileUndoBtn" class="icon-btn" data-i18n-title="actions.undo">↶</button>
+      <button id="mobileRedoBtn" class="icon-btn" data-i18n-title="actions.redo">↷</button>
+    </div>
+  </header>
+  <div id="sidebarBackdrop"></div>
+
   <div id="appRoot">
   <aside class="panel" id="sidebar">
     <div class="top-row">
       <h1>GB Paint</h1>
       <div class="header-actions">
-        <button id="undoBtn" title="Undo">↶</button>
-        <button id="redoBtn" title="Redo">↷</button>
-        <button id="polygonConfirmBtn" title="Polygon Confirm" hidden>✓</button>
+        <button id="undoBtn" data-i18n-title="actions.undo">↶</button>
+        <button id="redoBtn" data-i18n-title="actions.redo">↷</button>
+        <button id="polygonConfirmBtn" data-i18n-title="actions.polygonConfirm" hidden>✓</button>
         <label>
-          <span data-i18n="lang">言語</span>
+          <span data-i18n="common.language"></span>
           <select id="langSelect">
             <option value="ja">JP</option>
             <option value="en">EN</option>
@@ -58,38 +94,38 @@
     </div>
     <div class="meta" id="subtitle"></div>
     <div class="row">
-      <button id="openAllSectionsBtn">全て開く</button>
-      <button id="closeAllSectionsBtn">全て閉じる</button>
+      <button id="openAllSectionsBtn" data-i18n="sections.openAll"></button>
+      <button id="closeAllSectionsBtn" data-i18n="sections.closeAll"></button>
     </div>
 
     <details id="sec-tools" class="ui-sec">
-      <summary><span data-i18n="tools">ツール</span></summary>
+      <summary><span data-i18n="sections.tools"></span></summary>
       <div class="row">
-        <button id="toolPen"></button>
-        <button id="toolEraser"></button>
-        <button id="toolFill"></button>
-        <button id="toolLine"></button>
-        <button id="toolRect"></button>
-        <button id="toolEllipse"></button>
-        <button id="toolPolygon"></button>
+        <button id="toolPen" data-i18n="tools.pen"></button>
+        <button id="toolEraser" data-i18n="tools.eraser"></button>
+        <button id="toolFill" data-i18n="tools.fill"></button>
+        <button id="toolLine" data-i18n="tools.line"></button>
+        <button id="toolRect" data-i18n="tools.rect"></button>
+        <button id="toolEllipse" data-i18n="tools.ellipse"></button>
+        <button id="toolPolygon" data-i18n="tools.polygon"></button>
       </div>
     </details>
 
     <details id="sec-shape" class="ui-sec">
-      <summary>Shape</summary>
+      <summary><span data-i18n="sections.shape"></span></summary>
       <div class="row">
-        <label>Mode
+        <label><span data-i18n="shape.mode"></span>
           <select id="shapeMode">
-            <option value="stroke">Stroke</option>
-            <option value="fill">Fill</option>
+            <option value="stroke" data-i18n="shape.stroke"></option>
+            <option value="fill" data-i18n="shape.fill"></option>
           </select>
         </label>
-        <button id="polygonCancelBtn">Polygon Cancel</button>
+        <button id="polygonCancelBtn" data-i18n="actions.polygonCancel"></button>
       </div>
     </details>
 
     <details id="sec-brush" class="ui-sec">
-      <summary><span data-i18n="brushSize">ブラシサイズ</span></summary>
+      <summary><span data-i18n="sections.brush"></span></summary>
       <div class="row" id="brushButtons">
         <button data-size="1">1px</button>
         <button data-size="2">2px</button>
@@ -98,74 +134,74 @@
     </details>
 
     <details id="sec-palette" class="ui-sec">
-      <summary><span data-i18n="palette">パレット</span></summary>
+      <summary><span data-i18n="sections.palette"></span></summary>
       <div class="row" id="paletteRow"></div>
     </details>
 
     <details id="sec-pattern" class="ui-sec">
-      <summary><span data-i18n="pattern">パターン塗り (P)</span></summary>
+      <summary><span data-i18n="sections.pattern"></span></summary>
       <div class="row">
-        <label><input type="checkbox" id="patternEnabled" /> <span data-i18n="enabled">有効</span></label>
+        <label><input type="checkbox" id="patternEnabled" /> <span data-i18n="common.enabled"></span></label>
         <select id="patternType"></select>
-        <label><input type="checkbox" id="patternInvert" /> <span data-i18n="invert">反転</span></label>
+        <label><input type="checkbox" id="patternInvert" /> <span data-i18n="common.invert"></span></label>
       </div>
     </details>
 
     <details id="sec-display" class="ui-sec">
-      <summary><span data-i18n="display">表示</span></summary>
+      <summary><span data-i18n="sections.display"></span></summary>
       <div class="row">
-        <label><input type="checkbox" id="gridToggle" checked /> <span id="gridLabel"></span></label>
-        <label><input type="checkbox" id="tileSnapToggle" /> <span id="tileSnapLabel"></span></label>
-        <label><input type="checkbox" id="heatmapToggle" /> <span data-i18n="heatmap">ユニークタイル ヒートマップ</span></label>
-        <label><input type="checkbox" id="pencilOnlyToggle" /> <span data-i18n="pencilOnly">Apple Pencilのみ描画</span></label>
-        <button id="resetViewBtn" data-i18n="resetView">表示をリセット (0)</button>
+        <label><input type="checkbox" id="gridToggle" checked /> <span data-i18n="display.grid"></span></label>
+        <label><input type="checkbox" id="tileSnapToggle" /> <span data-i18n="display.tileSnap"></span></label>
+        <label><input type="checkbox" id="heatmapToggle" /> <span data-i18n="display.heatmap"></span></label>
+        <label><input type="checkbox" id="pencilOnlyToggle" /> <span data-i18n="display.pencilOnly"></span></label>
+        <button id="resetViewBtn" data-i18n="display.resetView"></button>
       </div>
     </details>
 
     <details id="sec-tile" class="ui-sec">
-      <summary><span data-i18n="tileStats">タイル統計</span></summary>
+      <summary><span data-i18n="sections.tileStats"></span></summary>
       <div class="meta" id="tileStats"></div>
       <div class="row">
-        <label><input type="checkbox" id="includeEmptyTiles" /> <span data-i18n="includeEmpty">空タイルをユニーク数に含める</span></label>
+        <label><input type="checkbox" id="includeEmptyTiles" /> <span data-i18n="tile.includeEmpty"></span></label>
       </div>
       <div id="tileWarning" class="warn"></div>
 
       <details>
-        <summary data-i18n="uniqueList">ユニークタイル一覧</summary>
+        <summary data-i18n="tile.uniqueList"></summary>
         <div id="uniqueTilesList"></div>
       </details>
     </details>
 
     <details id="sec-guide" class="ui-sec">
-      <summary>ガイド</summary>
+      <summary><span data-i18n="sections.guide"></span></summary>
       <div class="row">
-        <button id="guideLoadBtn">画像を読み込む</button>
-        <label><input type="checkbox" id="guideVisibleToggle" /> 表示</label>
-        <label>不透明度 <input type="range" id="guideOpacity" min="0" max="100" value="40" /></label>
-        <button id="guideClearBtn">削除</button>
+        <button id="guideLoadBtn" data-i18n="guide.loadImage"></button>
+        <label><input type="checkbox" id="guideVisibleToggle" /> <span data-i18n="guide.show"></span></label>
+        <label><span data-i18n="guide.opacity"></span> <input type="range" id="guideOpacity" min="0" max="100" value="40" /></label>
+        <button id="guideClearBtn" data-i18n="guide.clear"></button>
       </div>
       <div class="row">
-        <label>位置X <input type="range" id="guideOffsetX" min="-80" max="80" value="0" /></label>
+        <label><span data-i18n="guide.offsetX"></span> <input type="range" id="guideOffsetX" min="-80" max="80" value="0" /></label>
         <span id="guideOffsetXValue">X:+0</span>
-        <label>位置Y <input type="range" id="guideOffsetY" min="-80" max="80" value="0" /></label>
+        <label><span data-i18n="guide.offsetY"></span> <input type="range" id="guideOffsetY" min="-80" max="80" value="0" /></label>
         <span id="guideOffsetYValue">Y:+0</span>
-        <button id="guideCenterBtn">センターに戻す</button>
+        <button id="guideCenterBtn" data-i18n="guide.center"></button>
       </div>
       <input type="file" id="guideFileInput" accept="image/*" style="display:none" />
     </details>
 
     <details id="sec-file" class="ui-sec">
-      <summary><span data-i18n="file">ファイル</span></summary>
+      <summary><span data-i18n="sections.file"></span></summary>
       <div class="row">
-        <button id="newBtn"></button>
-        <button id="saveJsonBtn"></button>
-        <button id="loadJsonBtn"></button>
+        <button id="newBtn" data-i18n="file.new"></button>
+        <button id="saveJsonBtn" data-i18n="file.saveJson"></button>
+        <button id="loadJsonBtn" data-i18n="file.loadJson"></button>
       </div>
       <input type="file" id="jsonFileInput" accept="application/json" style="display:none" />
     </details>
 
     <details id="sec-png" class="ui-sec">
-      <summary><span data-i18n="png">PNG書き出し</span></summary>
+      <summary><span data-i18n="sections.png"></span></summary>
       <div class="row" id="pngButtons">
         <button data-kind="scale" data-scale="1">160x144</button>
         <button data-kind="scale" data-scale="2">2x</button>
@@ -178,7 +214,7 @@
     </details>
 
     <details id="sec-shortcuts" class="ui-sec">
-      <summary><span data-i18n="shortcuts">ショートカット</span></summary>
+      <summary><span data-i18n="sections.shortcuts"></span></summary>
       <div class="meta" id="shortcuts"></div>
     </details>
   </aside>
@@ -200,41 +236,50 @@
 
   const STR = {
     ja: {
-      lang: "言語", subtitle: "160x144 / 固定4色 / タイル制約可視化", tools: "ツール", brushSize: "ブラシサイズ", palette: "パレット",
-      pattern: "パターン塗り (P)", enabled: "有効", invert: "反転", display: "表示", grid: "8x8境界線 (Shift+G)", tileSnap: "8x8タイルスナップ (T)",
-      heatmap: "ユニークタイル ヒートマップ", pencilOnly: "Apple Pencilのみ描画", resetView: "表示をリセット (0)", tileStats: "タイル統計", includeEmpty: "空タイルをユニーク数に含める", uniqueList: "ユニークタイル一覧",
-      file: "ファイル", png: "PNG書き出し", shortcuts: "ショートカット", pen: "ペン (B)", eraser: "消しゴム (E)", fill: "塗りつぶし (G)",
-      line: "直線 (L)", rect: "四角 (R)", ellipse: "楕円 (O)", polygon: "多角形 (K)",
-      newBtn: "新規", saveJson: "JSON保存", loadJson: "JSON読込",
-      tilesUsed: (n) => `Tiles used: ${n} / 360`, uniqueTiles: (n) => `Unique tiles: ${n} / 192`,
-      warnUnique: (n) => `⚠ Unique tiles exceed GB limit (192): ${n}`,
-      fillCount: (n) => `出現 ${n}回`,
-      confirmNew: "新規作成しますか？未保存の内容は失われます。", errLoad: (m) => `JSON読込エラー: ${m}`,
-      errSize: (w,h) => `サイズ不一致: ${w}x${h} (期待: 160x144)`, errPixelsMissing: "pixelsがありません", errPixelsInvalid: "pixels長が不正です",
-      sc1: "<kbd>1-4</kbd> 色選択 / <kbd>B</kbd>ペン / <kbd>E</kbd>消しゴム / <kbd>G</kbd>塗りつぶし / <kbd>L/R/O/K</kbd> 図形 / <kbd>P</kbd>パターン",
-      sc2: "<kbd>Shift+G</kbd>グリッド / <kbd>T</kbd>タイルスナップ / <kbd>[</kbd><kbd>]</kbd>ブラシサイズ",
-      sc3: "<kbd>Ctrl/Cmd+Z</kbd> Undo / <kbd>Ctrl/Cmd+Shift+Z</kbd> or <kbd>Ctrl+Y</kbd> Redo",
-      sc4: "<kbd>Ctrl/Cmd+S</kbd> JSON保存 / <kbd>Ctrl/Cmd+O</kbd> JSON読込 / <kbd>Ctrl/Cmd+N</kbd> 新規 / <kbd>Ctrl/Cmd+E</kbd> PNG"
+      common: { language: "言語", enabled: "有効", invert: "反転" },
+      mobile: { menuTitle: "UIを開く / 閉じる" },
+      actions: { undo: "元に戻す", redo: "やり直し", polygonConfirm: "多角形を確定", polygonCancel: "多角形をキャンセル", polygonNeedsPoints: "多角形は3点以上必要です" },
+      sections: {
+        openAll: "全て開く", closeAll: "全て閉じる", tools: "ツール", shape: "図形", brush: "ブラシサイズ", palette: "パレット",
+        pattern: "パターン塗り (P)", display: "表示", tileStats: "タイル統計", guide: "ガイド", file: "ファイル", png: "PNG書き出し", shortcuts: "ショートカット"
+      },
+      shape: { mode: "モード", stroke: "線", fill: "塗り" },
+      tools: { pen: "ペン (B)", eraser: "消しゴム (E)", fill: "塗りつぶし (G)", line: "直線 (L)", rect: "四角 (R)", ellipse: "楕円 (O)", polygon: "多角形 (K)" },
+      display: { grid: "8x8境界線 (Shift+G)", tileSnap: "8x8タイルスナップ (T)", heatmap: "ユニークタイル ヒートマップ", pencilOnly: "Apple Pencilのみ描画", resetView: "表示をリセット (0)" },
+      tile: { includeEmpty: "空タイルをユニーク数に含める", uniqueList: "ユニークタイル一覧" },
+      guide: { loadImage: "画像を読み込み", show: "表示", opacity: "不透明度", clear: "削除", offsetX: "位置X", offsetY: "位置Y", center: "センターに戻す" },
+      file: { new: "新規", saveJson: "JSON保存", loadJson: "JSON読込" },
+      app: { subtitle: "160x144 / 固定4色 / タイル制約可視化", langBtn: "EN", tilesUsed: (n) => `Tiles used: ${n} / 360`, uniqueTiles: (n) => `Unique tiles: ${n} / 192`, warnUnique: (n) => `⚠ Unique tiles exceed GB limit (192): ${n}`, fillCount: (n) => `出現 ${n}回`, confirmNew: "新規作成しますか？未保存の内容は失われます。", errLoad: (m) => `JSON読込エラー: ${m}`, errSize: (w,h) => `サイズ不一致: ${w}x${h} (期待: 160x144)`, errPixelsMissing: "pixelsがありません", errPixelsInvalid: "pixels長が不正です",
+        sc1: "<kbd>1-4</kbd> 色選択 / <kbd>B</kbd> ペン / <kbd>E</kbd> 消しゴム / <kbd>G</kbd> 塗りつぶし / <kbd>L/R/O/K</kbd> 図形 / <kbd>P</kbd> パターン",
+        sc2: "<kbd>Shift+G</kbd> グリッド / <kbd>T</kbd> タイルスナップ / <kbd>[</kbd><kbd>]</kbd> ブラシサイズ",
+        sc3: "<kbd>Ctrl/Cmd+Z</kbd> Undo / <kbd>Ctrl/Cmd+Shift+Z</kbd> または <kbd>Ctrl+Y</kbd> Redo",
+        sc4: "<kbd>Ctrl/Cmd+S</kbd> JSON保存 / <kbd>Ctrl/Cmd+O</kbd> JSON読込 / <kbd>Ctrl/Cmd+N</kbd> 新規 / <kbd>Ctrl/Cmd+E</kbd> PNG"
+      }
     },
     en: {
-      lang: "Language", subtitle: "160x144 / fixed 4 colors / tile-limit aware", tools: "Tools", brushSize: "Brush Size", palette: "Palette",
-      pattern: "Pattern Paint (P)", enabled: "Enabled", invert: "Invert", display: "Display", grid: "8x8 Boundaries (Shift+G)", tileSnap: "8x8 Tile Snap (T)",
-      heatmap: "Unique Tile Heatmap", pencilOnly: "Draw with Apple Pencil only", resetView: "Reset View (0)", tileStats: "Tile Stats", includeEmpty: "Include empty tile in unique count", uniqueList: "Unique Tiles",
-      file: "File", png: "PNG Export", shortcuts: "Shortcuts", pen: "Pen (B)", eraser: "Eraser (E)", fill: "Fill (G)",
-      line: "Line (L)", rect: "Rectangle (R)", ellipse: "Ellipse (O)", polygon: "Polygon (K)",
-      newBtn: "New", saveJson: "Save JSON", loadJson: "Load JSON",
-      tilesUsed: (n) => `Tiles used: ${n} / 360`, uniqueTiles: (n) => `Unique tiles: ${n} / 192`,
-      warnUnique: (n) => `⚠ Unique tiles exceed GB limit (192): ${n}`,
-      fillCount: (n) => `${n} uses`,
-      confirmNew: "Create new canvas? Unsaved content will be lost.", errLoad: (m) => `JSON load error: ${m}`,
-      errSize: (w,h) => `Size mismatch: ${w}x${h} (expected: 160x144)`, errPixelsMissing: "Missing pixels", errPixelsInvalid: "Invalid pixel length",
-      sc1: "<kbd>1-4</kbd> color / <kbd>B</kbd> pen / <kbd>E</kbd> eraser / <kbd>G</kbd> fill / <kbd>L/R/O/K</kbd> shapes / <kbd>P</kbd> pattern",
-      sc2: "<kbd>Shift+G</kbd> grid / <kbd>T</kbd> tile snap / <kbd>[</kbd><kbd>]</kbd> brush size",
-      sc3: "<kbd>Ctrl/Cmd+Z</kbd> Undo / <kbd>Ctrl/Cmd+Shift+Z</kbd> or <kbd>Ctrl+Y</kbd> Redo",
-      sc4: "<kbd>Ctrl/Cmd+S</kbd> save JSON / <kbd>Ctrl/Cmd+O</kbd> load JSON / <kbd>Ctrl/Cmd+N</kbd> new / <kbd>Ctrl/Cmd+E</kbd> PNG"
+      common: { language: "Language", enabled: "Enabled", invert: "Invert" },
+      mobile: { menuTitle: "Open / close UI" },
+      actions: { undo: "Undo", redo: "Redo", polygonConfirm: "Confirm polygon", polygonCancel: "Cancel polygon", polygonNeedsPoints: "Polygon requires at least 3 points" },
+      sections: {
+        openAll: "Open all", closeAll: "Close all", tools: "Tools", shape: "Shape", brush: "Brush Size", palette: "Palette",
+        pattern: "Pattern Paint (P)", display: "Display", tileStats: "Tile Stats", guide: "Guide", file: "File", png: "PNG Export", shortcuts: "Shortcuts"
+      },
+      shape: { mode: "Mode", stroke: "Stroke", fill: "Fill" },
+      tools: { pen: "Pen (B)", eraser: "Eraser (E)", fill: "Fill (G)", line: "Line (L)", rect: "Rectangle (R)", ellipse: "Ellipse (O)", polygon: "Polygon (K)" },
+      display: { grid: "8x8 Boundaries (Shift+G)", tileSnap: "8x8 Tile Snap (T)", heatmap: "Unique Tiles Heatmap", pencilOnly: "Draw with Apple Pencil only", resetView: "Reset View (0)" },
+      tile: { includeEmpty: "Include empty tile in unique count", uniqueList: "Unique Tiles" },
+      guide: { loadImage: "Load Image", show: "Show", opacity: "Opacity", clear: "Clear", offsetX: "Offset X", offsetY: "Offset Y", center: "Center" },
+      file: { new: "New", saveJson: "Save JSON", loadJson: "Load JSON" },
+      app: { subtitle: "160x144 / fixed 4 colors / tile-limit aware", langBtn: "JP", tilesUsed: (n) => `Tiles used: ${n} / 360`, uniqueTiles: (n) => `Unique tiles: ${n} / 192`, warnUnique: (n) => `⚠ Unique tiles exceed GB limit (192): ${n}`, fillCount: (n) => `${n} uses`, confirmNew: "Create new canvas? Unsaved content will be lost.", errLoad: (m) => `JSON load error: ${m}`, errSize: (w,h) => `Size mismatch: ${w}x${h} (expected: 160x144)`, errPixelsMissing: "Missing pixels", errPixelsInvalid: "Invalid pixel length",
+        sc1: "<kbd>1-4</kbd> color / <kbd>B</kbd> pen / <kbd>E</kbd> eraser / <kbd>G</kbd> fill / <kbd>L/R/O/K</kbd> shapes / <kbd>P</kbd> pattern",
+        sc2: "<kbd>Shift+G</kbd> grid / <kbd>T</kbd> tile snap / <kbd>[</kbd><kbd>]</kbd> brush size",
+        sc3: "<kbd>Ctrl/Cmd+Z</kbd> Undo / <kbd>Ctrl/Cmd+Shift+Z</kbd> or <kbd>Ctrl+Y</kbd> Redo",
+        sc4: "<kbd>Ctrl/Cmd+S</kbd> save JSON / <kbd>Ctrl/Cmd+O</kbd> load JSON / <kbd>Ctrl/Cmd+N</kbd> new / <kbd>Ctrl/Cmd+E</kbd> PNG"
+      }
     }
   };
 
+  window.__i18nMissingKeys = [];
   const PATTERNS = [
     { key:"d4_125", label:"4x4 12.5%", density:0.125 },
     { key:"d4_25", label:"4x4 25%", density:0.25 },
@@ -306,7 +351,13 @@
     guideCenterBtn: document.getElementById("guideCenterBtn"),
     openAllSectionsBtn: document.getElementById("openAllSectionsBtn"),
     closeAllSectionsBtn: document.getElementById("closeAllSectionsBtn"),
-    sections: [...document.querySelectorAll("details.ui-sec")]
+    sections: [...document.querySelectorAll("details.ui-sec")],
+    mobileMenuBtn: document.getElementById("mobileMenuBtn"),
+    mobileLangBtn: document.getElementById("mobileLangBtn"),
+    mobileUndoBtn: document.getElementById("mobileUndoBtn"),
+    mobileRedoBtn: document.getElementById("mobileRedoBtn"),
+    sidebarBackdrop: document.getElementById("sidebarBackdrop"),
+    stage: document.getElementById("stage")
   };
 
   ui.shapeMode = document.getElementById("shapeMode");
@@ -342,9 +393,20 @@
   let pendingHasDragged = false;
   let guideImage = null;
 
-  function t(k, ...args) {
-    const v = STR[state.lang][k];
-    return typeof v === "function" ? v(...args) : v;
+  function getI18nValue(lang, key) {
+    return key.split(".").reduce((acc, part) => (acc && Object.prototype.hasOwnProperty.call(acc, part) ? acc[part] : undefined), STR[lang]);
+  }
+
+  function t(key, ...args) {
+    const value = getI18nValue(state.lang, key);
+    if (value === undefined) {
+      if (!window.__i18nMissingKeys.includes(key)) {
+        window.__i18nMissingKeys.push(key);
+        console.error(`[i18n] missing key: ${key}`);
+      }
+      return `[[MISSING: ${key}]]`;
+    }
+    return typeof value === "function" ? value(...args) : value;
   }
 
   const SECTIONS_STORAGE_KEY = "gbpaint_sections_open";
@@ -376,26 +438,20 @@
       });
       return;
     }
-    ui.sections.forEach(sec => { sec.open = true; });
+    const defaults = new Set(["sec-tools", "sec-brush", "sec-palette"]);
+    ui.sections.forEach(sec => { sec.open = defaults.has(sec.id); });
     saveSectionsState();
   }
 
   function updateI18n() {
-    document.querySelectorAll("[data-i18n]").forEach(el => el.textContent = t(el.dataset.i18n));
-    document.getElementById("subtitle").textContent = t("subtitle");
-    document.getElementById("gridLabel").textContent = t("grid");
-    document.getElementById("tileSnapLabel").textContent = t("tileSnap");
-    document.getElementById("toolPen").textContent = t("pen");
-    document.getElementById("toolEraser").textContent = t("eraser");
-    document.getElementById("toolFill").textContent = t("fill");
-    document.getElementById("toolLine").textContent = t("line");
-    document.getElementById("toolRect").textContent = t("rect");
-    document.getElementById("toolEllipse").textContent = t("ellipse");
-    document.getElementById("toolPolygon").textContent = t("polygon");
-    document.getElementById("newBtn").textContent = t("newBtn");
-    document.getElementById("saveJsonBtn").textContent = t("saveJson");
-    document.getElementById("loadJsonBtn").textContent = t("loadJson");
-    document.getElementById("shortcuts").innerHTML = `<div>${t("sc1")}</div><div>${t("sc2")}</div><div>${t("sc3")}</div><div>${t("sc4")}</div>`;
+    document.querySelectorAll("[data-i18n]").forEach(el => { el.textContent = t(el.dataset.i18n); });
+    document.querySelectorAll("[data-i18n-title]").forEach(el => { el.title = t(el.dataset.i18nTitle); });
+    document.getElementById("subtitle").textContent = t("app.subtitle");
+    document.getElementById("shortcuts").innerHTML = `<div>${t("app.sc1")}</div><div>${t("app.sc2")}</div><div>${t("app.sc3")}</div><div>${t("app.sc4")}</div>`;
+    ui.mobileLangBtn.textContent = t("app.langBtn");
+    if (window.__i18nMissingKeys.length) {
+      console.warn("[i18n] missing keys", window.__i18nMissingKeys);
+    }
   }
 
   function resizeOverlayCanvas() {
@@ -522,18 +578,30 @@
     b.dataset.scale = `x${state.viewScale.toFixed(2).replace(/\.00$/, "")}`;
   }
 
+  function isMobileLayout() {
+    return window.innerWidth < 600;
+  }
+
+  function setMobileUIOpen(nextOpen) {
+    const open = Boolean(nextOpen) && isMobileLayout();
+    document.body.classList.toggle("ui-open", open);
+    ui.stage.classList.toggle("blocked", open);
+  }
+
   function updateScale() {
     const panel = document.querySelector(".panel");
-    const panelW = window.innerWidth > 920 ? panel.offsetWidth : 0;
-    const panelH = window.innerWidth <= 920 ? panel.offsetHeight : 0;
-    const availW = Math.max(200, window.innerWidth - panelW - 32);
-    const availH = Math.max(200, window.innerHeight - panelH - 32);
+    const isMobile = isMobileLayout();
+    const panelW = !isMobile && window.innerWidth >= 600 ? panel.offsetWidth : 0;
+    const topbarH = isMobile ? document.getElementById("mobileTopbar").offsetHeight : 0;
+    const availW = Math.max(200, window.innerWidth - panelW - 24);
+    const availH = Math.max(200, window.innerHeight - topbarH - 24);
     state.fitScale = Math.max(1, Math.floor(Math.min(availW / W, availH / H)));
     if (state.viewOffsetX === 0 && state.viewOffsetY === 0 && state.viewScale === 1) {
       const workspace = document.querySelector(".workspace");
       state.viewOffsetX = Math.max(0, (workspace.clientWidth - W * state.fitScale) / 2);
       state.viewOffsetY = Math.max(0, (workspace.clientHeight - H * state.fitScale) / 2);
     }
+    if (!isMobile) setMobileUIOpen(false);
     applyViewTransform();
     updateScaleBadge();
     renderOverlay();
@@ -812,7 +880,7 @@
 
   function tryCommitPolygon() {
     if (state.polygonPoints.length < 3) {
-      alert("Polygon requires at least 3 points");
+      alert(t("actions.polygonNeedsPoints"));
       return false;
     }
     const ok = commitShape({ type: "polygon", points: state.polygonPoints.slice() });
@@ -1064,15 +1132,15 @@
   }
   function loadJSONFromText(text) {
     const data = JSON.parse(text);
-    if (data.w !== W || data.h !== H) throw new Error(t("errSize", data.w, data.h));
-    if (!data.pixels) throw new Error(t("errPixelsMissing"));
+    if (data.w !== W || data.h !== H) throw new Error(t("app.errSize", data.w, data.h));
+    if (!data.pixels) throw new Error(t("app.errPixelsMissing"));
     const arr = decodePixelsBase64(data.pixels);
-    if (arr.length !== W * H) throw new Error(t("errPixelsInvalid"));
+    if (arr.length !== W * H) throw new Error(t("app.errPixelsInvalid"));
     state.pixels = arr; state.undoStack.length = 0; state.redoStack.length = 0; cancelPolygon(); clearGuideImage();
     if (data.meta?.lang && STR[data.meta.lang]) { state.lang = data.meta.lang; ui.langSelect.value = state.lang; localStorage.setItem("gbpaint_lang", state.lang); updateI18n(); }
     renderCanvas(); updateUndoRedoButtons();
   }
-  function newCanvas() { if (!confirm(t("confirmNew"))) return; state.pixels = new Uint8Array(W * H).fill(bgIndex); state.undoStack.length = 0; state.redoStack.length = 0; cancelPolygon(); clearGuideImage(); renderCanvas(); updateUndoRedoButtons(); }
+  function newCanvas() { if (!confirm(t("app.confirmNew"))) return; state.pixels = new Uint8Array(W * H).fill(bgIndex); state.undoStack.length = 0; state.redoStack.length = 0; cancelPolygon(); clearGuideImage(); renderCanvas(); updateUndoRedoButtons(); }
 
   function exportPNGScale(scale) {
     const out = document.createElement("canvas"); out.width = W * scale; out.height = H * scale;
@@ -1111,14 +1179,14 @@
         img.data[o] = parseInt(col.slice(1,3),16); img.data[o+1] = parseInt(col.slice(3,5),16); img.data[o+2] = parseInt(col.slice(5,7),16); img.data[o+3] = 255;
       }
       cctx.putImageData(img,0,0);
-      const txt = document.createElement("div"); txt.textContent = t("fillCount", rec.count);
+      const txt = document.createElement("div"); txt.textContent = t("app.fillCount", rec.count);
       item.append(c, txt); ui.uniqueTilesList.append(item);
     }
   }
   function updateTileInfo() {
     const data = computeTileData();
-    ui.tileStats.textContent = `${t("tilesUsed", data.nonEmpty)} | ${t("uniqueTiles", data.unique)}`;
-    ui.tileWarning.textContent = data.unique > 192 ? t("warnUnique", data.unique) : "";
+    ui.tileStats.textContent = `${t("app.tilesUsed", data.nonEmpty)} | ${t("app.uniqueTiles", data.unique)}`;
+    ui.tileWarning.textContent = data.unique > 192 ? t("app.warnUnique", data.unique) : "";
     renderUniqueTileList(data.freqMap); renderOverlay(data.freqMap);
   }
 
@@ -1612,7 +1680,7 @@
     ui.jsonFileInput.addEventListener("change", async (ev) => {
       const file = ev.target.files[0]; if (!file) return;
       try { loadJSONFromText(await file.text()); }
-      catch (err) { alert(t("errLoad", err.message)); }
+      catch (err) { alert(t("app.errLoad", err.message)); }
       finally { ev.target.value = ""; }
     });
 
@@ -1629,6 +1697,18 @@
     bindHeaderAction(ui.undoBtn, undo);
     bindHeaderAction(ui.redoBtn, redo);
     bindHeaderAction(ui.polygonConfirmBtn, () => { if (state.tool === "polygon") tryCommitPolygon(); });
+
+    ui.mobileMenuBtn.addEventListener("click", () => setMobileUIOpen(!document.body.classList.contains("ui-open")));
+    ui.sidebarBackdrop.addEventListener("click", () => setMobileUIOpen(false));
+    ui.mobileUndoBtn.addEventListener("click", undo);
+    ui.mobileRedoBtn.addEventListener("click", redo);
+    ui.mobileLangBtn.addEventListener("click", () => {
+      state.lang = state.lang === "ja" ? "en" : "ja";
+      ui.langSelect.value = state.lang;
+      localStorage.setItem("gbpaint_lang", state.lang);
+      updateI18n();
+      updateTileInfo();
+    });
 
     ui.sections.forEach(sec => {
       sec.addEventListener("toggle", saveSectionsState);
@@ -1679,6 +1759,7 @@
       if (key === "]") { state.brushSize = [1,2,4][Math.min(2, [1,2,4].indexOf(state.brushSize)+1)]; syncUI(); return; }
     });
 
+    ui.stage.addEventListener("pointerdown", () => { if (isMobileLayout() && document.body.classList.contains("ui-open")) setMobileUIOpen(false); });
     paintCanvas.addEventListener("wheel", handleWheel, { passive: false });
     window.addEventListener("resize", updateScale);
 
