@@ -9,11 +9,15 @@
     * { box-sizing: border-box; }
     html, body { overscroll-behavior: none; }
     body { margin:0; background:var(--bg); color:var(--text); font-family: ui-sans-serif,system-ui,sans-serif; height:100dvh; overflow:hidden; }
-    #appRoot { display:grid; grid-template-columns:340px 1fr; height:100dvh; width:100%; }
-    .panel { background:var(--panel); padding:12px; overflow-y:auto; overflow-x:hidden; border-right:1px solid #333; min-height:0; -webkit-overflow-scrolling:touch; touch-action:pan-y; }
+    #appRoot { display:grid; grid-template-columns:340px 1fr; height:100dvh; width:100%; overflow:hidden; }
+    .panel { background:var(--panel); padding:12px; overflow-y:auto; overflow-x:hidden; border-right:1px solid #333; min-height:0; height:100dvh; overscroll-behavior:contain; -webkit-overflow-scrolling:touch; touch-action:pan-y; }
     .top-row { display:flex; justify-content:space-between; align-items:center; gap:8px; }
     h1 { margin:0 0 8px; font-size:1.2rem; }
     .row { display:flex; gap:8px; flex-wrap:wrap; align-items:center; margin:6px 0; }
+    .quick-panel { border:1px solid #3a3a3a; border-radius:8px; padding:8px; margin:8px 0 10px; background:#232323; }
+    .quick-title { font-size:.8rem; opacity:.9; margin-bottom:6px; }
+    .quick-tools button, .quick-brush button, .quick-guide button { min-height:32px; }
+    #quickPaletteRow .swatch { width:24px; height:24px; }
     button, select, input[type="checkbox"] { background:#2b2b2b; color:var(--text); border:1px solid #444; border-radius:6px; padding:4px 8px; }
     button.active { outline:2px solid var(--accent); }
     button:disabled { opacity:.45; cursor:not-allowed; }
@@ -24,7 +28,7 @@
     .canvas-wrap { position:absolute; left:0; top:0; width:fit-content; height:fit-content; box-shadow:0 0 0 1px #444; background:#000; touch-action:none; user-select:none; -webkit-user-select:none; -webkit-touch-callout:none; cursor:crosshair; }
     .canvas-wrap.mouse-pan { cursor:grabbing; }
     canvas { image-rendering:pixelated; image-rendering:crisp-edges; display:block; touch-action:none; user-select:none; -webkit-user-select:none; -webkit-touch-callout:none; }
-    #guideCanvas { position:absolute; left:0; top:0; width:100%; height:100%; pointer-events:none; z-index:2; }
+    #guideCanvas { position:absolute; left:0; top:0; pointer-events:none; z-index:2; }
     #paintCanvas { position:relative; z-index:1; }
     #overlayCanvas { position:absolute; left:0; top:0; pointer-events:none; z-index:3; }
     .header-actions { display:flex; gap:6px; align-items:center; }
@@ -94,6 +98,26 @@
       </div>
     </div>
     <div class="meta" id="subtitle"></div>
+    <section class="quick-panel" id="quickPanel">
+      <div class="quick-title" data-i18n="sections.quick"></div>
+      <div class="row quick-tools">
+        <button id="quickToolPen" data-i18n="tools.penShort"></button>
+        <button id="quickToolEraser" data-i18n="tools.eraserShort"></button>
+        <button id="quickToolFill" data-i18n="tools.fillShort"></button>
+        <button id="quickUndoBtn" data-i18n-title="actions.undo">↶</button>
+        <button id="quickRedoBtn" data-i18n-title="actions.redo">↷</button>
+      </div>
+      <div class="row quick-brush" id="quickBrushButtons">
+        <button data-size="1">1px</button>
+        <button data-size="2">2px</button>
+        <button data-size="4">4px</button>
+      </div>
+      <div class="row" id="quickPaletteRow"></div>
+      <div class="row quick-guide">
+        <button id="quickGuideToggleBtn" data-i18n="guide.show"></button>
+        <button id="quickGridToggleBtn" data-i18n="display.gridShort"></button>
+      </div>
+    </section>
     <div class="row">
       <button id="openAllSectionsBtn" data-i18n="sections.openAll"></button>
       <button id="closeAllSectionsBtn" data-i18n="sections.closeAll"></button>
@@ -241,16 +265,16 @@
       mobile: { menuTitle: "UIを開く / 閉じる" },
       actions: { undo: "元に戻す", redo: "やり直し", polygonConfirm: "多角形を確定", polygonCancel: "多角形をキャンセル", polygonNeedsPoints: "多角形は3点以上必要です" },
       sections: {
-        openAll: "全て開く", closeAll: "全て閉じる", tools: "ツール", shape: "図形", brush: "ブラシサイズ", palette: "パレット",
+        openAll: "全て開く", closeAll: "全て閉じる", quick: "Quick", tools: "ツール", shape: "図形", brush: "ブラシサイズ", palette: "パレット",
         pattern: "パターン塗り (P)", display: "表示", tileStats: "タイル統計", guide: "ガイド", file: "ファイル", png: "PNG書き出し", shortcuts: "ショートカット"
       },
       shape: { mode: "モード", stroke: "線", fill: "塗り" },
-      tools: { pen: "ペン (B)", eraser: "消しゴム (E)", fill: "塗りつぶし (G)", line: "直線 (L)", rect: "四角 (R)", ellipse: "楕円 (O)", polygon: "多角形 (K)" },
-      display: { grid: "8x8境界線 (Shift+G)", tileSnap: "8x8タイルスナップ (T)", heatmap: "ユニークタイル ヒートマップ", pencilOnly: "Apple Pencilのみ描画", resetView: "表示をリセット (0)" },
+      tools: { pen: "ペン (B)", eraser: "消しゴム (E)", fill: "塗りつぶし (G)", line: "直線 (L)", rect: "四角 (R)", ellipse: "楕円 (O)", polygon: "多角形 (K)", penShort:"Pen", eraserShort:"Eraser", fillShort:"Fill" },
+      display: { grid: "8x8境界線 (Shift+G)", gridShort:"Grid", tileSnap: "8x8タイルスナップ (T)", heatmap: "ユニークタイル ヒートマップ", pencilOnly: "Apple Pencilのみ描画", resetView: "表示をリセット (0)" },
       tile: { includeEmpty: "空タイルをユニーク数に含める", uniqueList: "ユニークタイル一覧" },
       guide: { loadImage: "画像を読み込み", show: "表示", opacity: "不透明度", clear: "削除", offsetX: "位置X", offsetY: "位置Y", center: "センターに戻す" },
       file: { new: "新規", saveJson: "JSON保存", loadJson: "JSON読込" },
-      app: { subtitle: "160x144 / 固定4色 / タイル制約可視化", langBtn: "EN", tilesUsed: (n) => `Tiles used: ${n} / 360`, uniqueTiles: (n) => `Unique tiles: ${n} / 192`, warnUnique: (n) => `⚠ Unique tiles exceed GB limit (192): ${n}`, fillCount: (n) => `出現 ${n}回`, confirmNew: "新規作成しますか？未保存の内容は失われます。", errLoad: (m) => `JSON読込エラー: ${m}`, errSize: (w,h) => `サイズ不一致: ${w}x${h} (期待: 160x144)`, errPixelsMissing: "pixelsがありません", errPixelsInvalid: "pixels長が不正です",
+      app: { subtitle: "160x144 / 固定4色 / タイル制約可視化", langBtn: "JP", switchToEN:"Switch to EN", switchToJP:"Switch to JP", autosaveRestoreConfirm:"前回の作業を復元しますか？", tilesUsed: (n) => `Tiles used: ${n} / 360`, uniqueTiles: (n) => `Unique tiles: ${n} / 192`, warnUnique: (n) => `⚠ Unique tiles exceed GB limit (192): ${n}`, fillCount: (n) => `出現 ${n}回`, confirmNew: "新規作成しますか？未保存の内容は失われます。", errLoad: (m) => `JSON読込エラー: ${m}`, errSize: (w,h) => `サイズ不一致: ${w}x${h} (期待: 160x144)`, errPixelsMissing: "pixelsがありません", errPixelsInvalid: "pixels長が不正です",
         sc1: "<kbd>1-4</kbd> 色選択 / <kbd>B</kbd> ペン / <kbd>E</kbd> 消しゴム / <kbd>G</kbd> 塗りつぶし / <kbd>L/R/O/K</kbd> 図形 / <kbd>P</kbd> パターン",
         sc2: "<kbd>Shift+G</kbd> グリッド / <kbd>T</kbd> タイルスナップ / <kbd>[</kbd><kbd>]</kbd> ブラシサイズ",
         sc3: "<kbd>Ctrl/Cmd+Z</kbd> Undo / <kbd>Ctrl/Cmd+Shift+Z</kbd> または <kbd>Ctrl+Y</kbd> Redo",
@@ -262,16 +286,16 @@
       mobile: { menuTitle: "Open / close UI" },
       actions: { undo: "Undo", redo: "Redo", polygonConfirm: "Confirm polygon", polygonCancel: "Cancel polygon", polygonNeedsPoints: "Polygon requires at least 3 points" },
       sections: {
-        openAll: "Open all", closeAll: "Close all", tools: "Tools", shape: "Shape", brush: "Brush Size", palette: "Palette",
+        openAll: "Open all", closeAll: "Close all", quick: "Quick", tools: "Tools", shape: "Shape", brush: "Brush Size", palette: "Palette",
         pattern: "Pattern Paint (P)", display: "Display", tileStats: "Tile Stats", guide: "Guide", file: "File", png: "PNG Export", shortcuts: "Shortcuts"
       },
       shape: { mode: "Mode", stroke: "Stroke", fill: "Fill" },
-      tools: { pen: "Pen (B)", eraser: "Eraser (E)", fill: "Fill (G)", line: "Line (L)", rect: "Rectangle (R)", ellipse: "Ellipse (O)", polygon: "Polygon (K)" },
-      display: { grid: "8x8 Boundaries (Shift+G)", tileSnap: "8x8 Tile Snap (T)", heatmap: "Unique Tiles Heatmap", pencilOnly: "Draw with Apple Pencil only", resetView: "Reset View (0)" },
+      tools: { pen: "Pen (B)", eraser: "Eraser (E)", fill: "Fill (G)", line: "Line (L)", rect: "Rectangle (R)", ellipse: "Ellipse (O)", polygon: "Polygon (K)", penShort:"Pen", eraserShort:"Eraser", fillShort:"Fill" },
+      display: { grid: "8x8 Boundaries (Shift+G)", gridShort:"Grid", tileSnap: "8x8 Tile Snap (T)", heatmap: "Unique Tiles Heatmap", pencilOnly: "Draw with Apple Pencil only", resetView: "Reset View (0)" },
       tile: { includeEmpty: "Include empty tile in unique count", uniqueList: "Unique Tiles" },
       guide: { loadImage: "Load Image", show: "Show", opacity: "Opacity", clear: "Clear", offsetX: "Offset X", offsetY: "Offset Y", center: "Center" },
       file: { new: "New", saveJson: "Save JSON", loadJson: "Load JSON" },
-      app: { subtitle: "160x144 / fixed 4 colors / tile-limit aware", langBtn: "JP", tilesUsed: (n) => `Tiles used: ${n} / 360`, uniqueTiles: (n) => `Unique tiles: ${n} / 192`, warnUnique: (n) => `⚠ Unique tiles exceed GB limit (192): ${n}`, fillCount: (n) => `${n} uses`, confirmNew: "Create new canvas? Unsaved content will be lost.", errLoad: (m) => `JSON load error: ${m}`, errSize: (w,h) => `Size mismatch: ${w}x${h} (expected: 160x144)`, errPixelsMissing: "Missing pixels", errPixelsInvalid: "Invalid pixel length",
+      app: { subtitle: "160x144 / fixed 4 colors / tile-limit aware", langBtn: "EN", switchToEN:"Switch to EN", switchToJP:"Switch to JP", autosaveRestoreConfirm:"Restore previous autosaved work?", tilesUsed: (n) => `Tiles used: ${n} / 360`, uniqueTiles: (n) => `Unique tiles: ${n} / 192`, warnUnique: (n) => `⚠ Unique tiles exceed GB limit (192): ${n}`, fillCount: (n) => `${n} uses`, confirmNew: "Create new canvas? Unsaved content will be lost.", errLoad: (m) => `JSON load error: ${m}`, errSize: (w,h) => `Size mismatch: ${w}x${h} (expected: 160x144)`, errPixelsMissing: "Missing pixels", errPixelsInvalid: "Invalid pixel length",
         sc1: "<kbd>1-4</kbd> color / <kbd>B</kbd> pen / <kbd>E</kbd> eraser / <kbd>G</kbd> fill / <kbd>L/R/O/K</kbd> shapes / <kbd>P</kbd> pattern",
         sc2: "<kbd>Shift+G</kbd> grid / <kbd>T</kbd> tile snap / <kbd>[</kbd><kbd>]</kbd> brush size",
         sc3: "<kbd>Ctrl/Cmd+Z</kbd> Undo / <kbd>Ctrl/Cmd+Shift+Z</kbd> or <kbd>Ctrl+Y</kbd> Redo",
@@ -371,7 +395,16 @@
     mobileRedoBtn: document.getElementById("mobileRedoBtn"),
     sidebarBackdrop: document.getElementById("sidebarBackdrop"),
     stage: document.getElementById("stage"),
-    uniqueDetails: document.querySelector("#sec-tile details")
+    uniqueDetails: document.querySelector("#sec-tile details"),
+    quickBrushButtons: [...document.querySelectorAll("#quickBrushButtons button")],
+    quickPaletteRow: document.getElementById("quickPaletteRow"),
+    quickGuideToggleBtn: document.getElementById("quickGuideToggleBtn"),
+    quickGridToggleBtn: document.getElementById("quickGridToggleBtn"),
+    quickToolPen: document.getElementById("quickToolPen"),
+    quickToolEraser: document.getElementById("quickToolEraser"),
+    quickToolFill: document.getElementById("quickToolFill"),
+    quickUndoBtn: document.getElementById("quickUndoBtn"),
+    quickRedoBtn: document.getElementById("quickRedoBtn")
   };
 
   ui.shapeMode = document.getElementById("shapeMode");
@@ -406,6 +439,10 @@
   let lastCanvasPointerType = null;
   let pendingHasDragged = false;
   let guideImage = null;
+  let guideSourceCanvas = null;
+  let guideImageURL = null;
+  const AUTOSAVE_KEY = "gbpaint_autosave_v1";
+  let autosaveTimer = null;
 
   function getI18nValue(lang, key) {
     return key.split(".").reduce((acc, part) => (acc && Object.prototype.hasOwnProperty.call(acc, part) ? acc[part] : undefined), STR[lang]);
@@ -463,6 +500,7 @@
     document.getElementById("subtitle").textContent = t("app.subtitle");
     document.getElementById("shortcuts").innerHTML = `<div>${t("app.sc1")}</div><div>${t("app.sc2")}</div><div>${t("app.sc3")}</div><div>${t("app.sc4")}</div>`;
     ui.mobileLangBtn.textContent = t("app.langBtn");
+    ui.mobileLangBtn.title = state.lang === "ja" ? t("app.switchToEN") : t("app.switchToJP");
     if (window.__i18nMissingKeys.length) {
       console.warn("[i18n] missing keys", window.__i18nMissingKeys);
     }
@@ -512,26 +550,33 @@
 
   function renderGuide() {
     clearGuideCanvas();
-    if (!guideImage || !state.guideVisible) {
+    if (!guideSourceCanvas || !state.guideVisible) {
       guideCanvas.style.display = "none";
       return;
     }
     guideCanvas.style.display = "block";
-    const imgW = Math.max(1, guideImage.naturalWidth || guideImage.width || 1);
-    const imgH = Math.max(1, guideImage.naturalHeight || guideImage.height || 1);
-    const scale = Math.min(W / imgW, H / imgH);
-    const drawW = imgW * scale;
-    const drawH = imgH * scale;
-    const baseX = (W - drawW) / 2;
-    const baseY = (H - drawH) / 2;
-    const x = baseX + state.guideOffsetX;
-    const y = baseY + state.guideOffsetY;
-
     guideCtx.save();
     guideCtx.globalAlpha = Math.max(0, Math.min(1, state.guideOpacity));
     guideCtx.imageSmoothingEnabled = true;
-    guideCtx.drawImage(guideImage, x, y, drawW, drawH);
+    guideCtx.drawImage(guideSourceCanvas, state.guideOffsetX, state.guideOffsetY, W, H);
     guideCtx.restore();
+  }
+
+  function buildGuideSourceFromImage(img) {
+    const source = document.createElement("canvas");
+    source.width = W;
+    source.height = H;
+    const ctx = source.getContext("2d");
+    ctx.clearRect(0, 0, W, H);
+    const imgW = Math.max(1, img.naturalWidth || img.width || 1);
+    const imgH = Math.max(1, img.naturalHeight || img.height || 1);
+    const scale = Math.min(W / imgW, H / imgH);
+    const drawW = imgW * scale;
+    const drawH = imgH * scale;
+    const x = (W - drawW) / 2;
+    const y = (H - drawH) / 2;
+    ctx.drawImage(img, x, y, drawW, drawH);
+    guideSourceCanvas = source;
   }
 
   async function loadGuideImage(file) {
@@ -543,13 +588,16 @@
           resizeQuality: "high"
         });
         guideImage = bmp;
+        buildGuideSourceFromImage(bmp);
         state.guideVisible = true;
         renderGuide();
         return;
       } catch (_) {}
     }
 
+    if (guideImageURL) { URL.revokeObjectURL(guideImageURL); guideImageURL = null; }
     const url = URL.createObjectURL(file);
+    guideImageURL = url;
     const img = new Image();
     img.decoding = "async";
     img.src = url;
@@ -561,7 +609,6 @@
         img.onerror = () => reject(new Error("guide image load failed"));
       });
     }
-    URL.revokeObjectURL(url);
 
     const iw = img.naturalWidth || img.width;
     const ih = img.naturalHeight || img.height;
@@ -572,12 +619,15 @@
     tmp.getContext("2d").drawImage(img, 0, 0, tmp.width, tmp.height);
 
     guideImage = tmp;
+    buildGuideSourceFromImage(tmp);
     state.guideVisible = true;
     renderGuide();
   }
 
   function clearGuideImage() {
     guideImage = null;
+    guideSourceCanvas = null;
+    if (guideImageURL) { URL.revokeObjectURL(guideImageURL); guideImageURL = null; }
     state.guideVisible = false;
     state.guideOpacity = 0.4;
     state.guideOffsetX = 0;
@@ -1138,7 +1188,7 @@
     }
     state.strokeBefore = null;
     updateUndoRedoButtons();
-    if (changed) scheduleTileInfoUpdate(250);
+    if (changed) { scheduleTileInfoUpdate(250); scheduleAutosave(500); }
   }
 
   function renderCanvasNow() {
@@ -1215,9 +1265,9 @@
     if (arr.length !== W * H) throw new Error(t("app.errPixelsInvalid"));
     state.pixels = arr; state.undoStack.length = 0; state.redoStack.length = 0; cancelPolygon(); clearGuideImage();
     if (data.meta?.lang && STR[data.meta.lang]) { state.lang = data.meta.lang; ui.langSelect.value = state.lang; localStorage.setItem("gbpaint_lang", state.lang); updateI18n(); }
-    renderCanvas(); updateUndoRedoButtons(); scheduleTileInfoUpdate(0);
+    renderCanvas(); updateUndoRedoButtons(); scheduleTileInfoUpdate(0); scheduleAutosave(0);
   }
-  function newCanvas() { if (!confirm(t("app.confirmNew"))) return; state.pixels = new Uint8Array(W * H).fill(bgIndex); state.undoStack.length = 0; state.redoStack.length = 0; cancelPolygon(); clearGuideImage(); renderCanvas(); updateUndoRedoButtons(); scheduleTileInfoUpdate(0); }
+  function newCanvas() { if (!confirm(t("app.confirmNew"))) return; state.pixels = new Uint8Array(W * H).fill(bgIndex); state.undoStack.length = 0; state.redoStack.length = 0; cancelPolygon(); clearGuideImage(); localStorage.removeItem(AUTOSAVE_KEY); renderCanvas(); updateUndoRedoButtons(); scheduleTileInfoUpdate(0); }
 
   function exportPNGScale(scale) {
     const out = document.createElement("canvas"); out.width = W * scale; out.height = H * scale;
@@ -1269,7 +1319,7 @@
   }
 
   function isTypingTarget(el) { return !!el && (el.isContentEditable || ["INPUT","TEXTAREA","SELECT"].includes(el.tagName)); }
-  function selectColor(idx) { state.selectedColor = idx; [...ui.paletteRow.children].forEach((c, i) => c.style.outline = i === idx ? "2px solid #fff" : "none"); }
+  function selectColor(idx) { state.selectedColor = idx; [...ui.paletteRow.children].forEach((c, i) => c.style.outline = i === idx ? "2px solid #fff" : "none"); [...ui.quickPaletteRow.children].forEach((c, i) => c.style.outline = i === idx ? "2px solid #fff" : "none"); }
 
   function syncUI() {
     document.getElementById("toolPen").classList.toggle("active", state.tool === "pen");
@@ -1288,8 +1338,13 @@
     ui.guideOpacity.value = String(Math.round(state.guideOpacity * 100));
     ui.guideOffsetX.value = String(state.guideOffsetX);
     ui.guideOffsetY.value = String(state.guideOffsetY);
-    ui.guideOffsetXValue.textContent = `X:${state.guideOffsetX >= 0 ? "+" : ""}${state.guideOffsetX}`;
-    ui.guideOffsetYValue.textContent = `Y:${state.guideOffsetY >= 0 ? "+" : ""}${state.guideOffsetY}`;
+    ui.guideOffsetXValue.textContent = `${t("guide.offsetX")}:${state.guideOffsetX >= 0 ? "+" : ""}${state.guideOffsetX}`;
+    ui.guideOffsetYValue.textContent = `${t("guide.offsetY")}:${state.guideOffsetY >= 0 ? "+" : ""}${state.guideOffsetY}`;
+    [ui.quickToolPen, ui.quickToolEraser, ui.quickToolFill].forEach((b, i) => b.classList.toggle("active", ["pen","eraser","fill"][i] === state.tool));
+    ui.quickBrushButtons.forEach(b => b.classList.toggle("active", Number(b.dataset.size) === state.brushSize));
+    [...ui.quickPaletteRow.children].forEach((c, i) => c.style.outline = i === state.selectedColor ? "2px solid #fff" : "none");
+    ui.quickGuideToggleBtn.classList.toggle("active", state.guideVisible);
+    ui.quickGridToggleBtn.classList.toggle("active", state.showGrid);
     selectColor(state.selectedColor); updateUndoRedoButtons();
   }
 
@@ -1434,6 +1489,36 @@
     updateCanvasGestureBlock();
   }
 
+  function encodeAutosavePayload() {
+    return JSON.stringify({ version:1, w:W, h:H, pixels:encodePixelsBase64(), lang:state.lang });
+  }
+
+  function scheduleAutosave(delay = 500) {
+    if (autosaveTimer) clearTimeout(autosaveTimer);
+    autosaveTimer = setTimeout(() => {
+      autosaveTimer = null;
+      try { localStorage.setItem(AUTOSAVE_KEY, encodeAutosavePayload()); } catch (_) {}
+    }, delay);
+  }
+
+  function tryRestoreAutosave() {
+    const raw = localStorage.getItem(AUTOSAVE_KEY);
+    if (!raw) return;
+    if (!confirm(t("app.autosaveRestoreConfirm"))) return;
+    try {
+      const data = JSON.parse(raw);
+      if (data.w !== W || data.h !== H || !data.pixels) return;
+      const arr = decodePixelsBase64(data.pixels);
+      if (arr.length !== W * H) return;
+      state.pixels = arr;
+      if (data.lang && STR[data.lang]) { state.lang = data.lang; ui.langSelect.value = state.lang; localStorage.setItem("gbpaint_lang", state.lang); }
+      state.undoStack.length = 0;
+      state.redoStack.length = 0;
+      renderCanvas();
+      scheduleTileInfoUpdate(0);
+    } catch (_) {}
+  }
+
   let lastPoint = null;
   function setupUI() {
     ui.langSelect.value = STR[state.lang] ? state.lang : "ja";
@@ -1448,7 +1533,21 @@
       b.title = `${i+1}`;
       b.addEventListener("click", () => { selectColor(i); syncUI(); });
       ui.paletteRow.append(b);
+      const qb = document.createElement("button");
+      qb.className = "swatch";
+      qb.style.background = hex;
+      qb.title = `${i+1}`;
+      qb.addEventListener("click", () => { selectColor(i); syncUI(); });
+      ui.quickPaletteRow.append(qb);
     });
+    ui.quickToolPen.addEventListener("click", () => setTool("pen"));
+    ui.quickToolEraser.addEventListener("click", () => setTool("eraser"));
+    ui.quickToolFill.addEventListener("click", () => setTool("fill"));
+    ui.quickBrushButtons.forEach(b => b.addEventListener("click", () => { state.brushSize = Number(b.dataset.size); syncUI(); }));
+    ui.quickUndoBtn.addEventListener("click", undo);
+    ui.quickRedoBtn.addEventListener("click", redo);
+    ui.quickGuideToggleBtn.addEventListener("click", () => { state.guideVisible = !state.guideVisible; syncUI(); renderGuide(); });
+    ui.quickGridToggleBtn.addEventListener("click", () => { state.showGrid = !state.showGrid; syncUI(); renderOverlay(); });
 
     paintCanvas.addEventListener("pointerdown", (ev) => {
       ev.preventDefault();
@@ -1857,6 +1956,7 @@
     });
 
     restoreSectionsState();
+    tryRestoreAutosave();
     updateI18n();
     syncUI();
     guideCanvas.style.display = "none";
