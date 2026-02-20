@@ -571,48 +571,57 @@
   }
 
   async function loadGuideImage(file) {
-    if ("createImageBitmap" in window) {
-      try {
-        const bmp = await createImageBitmap(file, {
-          resizeWidth: GUIDE_MAX,
-          resizeHeight: GUIDE_MAX,
-          resizeQuality: "high"
-        });
-        guideImage = bmp;
-        drawGuideImageOnce(bmp);
-        state.guideVisible = true;
-        updateGuideLayerDisplay();
-        return;
-      } catch (_) {}
-    }
-
     if (guideImageURL) { URL.revokeObjectURL(guideImageURL); guideImageURL = null; }
     const url = URL.createObjectURL(file);
     guideImageURL = url;
     const img = new Image();
     img.decoding = "async";
     img.src = url;
+
     try {
-      await img.decode();
-    } catch (_) {
-      await new Promise((resolve, reject) => {
-        img.onload = () => resolve();
-        img.onerror = () => reject(new Error("guide image load failed"));
-      });
+      try {
+        await img.decode();
+      } catch (_) {
+        await new Promise((resolve, reject) => {
+          img.onload = () => resolve();
+          img.onerror = () => reject(new Error("guide image load failed"));
+        });
+      }
+
+      const iw = Math.max(1, img.naturalWidth || img.width || 1);
+      const ih = Math.max(1, img.naturalHeight || img.height || 1);
+      const scale = Math.min(1, GUIDE_MAX / Math.max(iw, ih));
+      const rw = Math.max(1, Math.round(iw * scale));
+      const rh = Math.max(1, Math.round(ih * scale));
+
+      if ("createImageBitmap" in window) {
+        try {
+          const bmp = await createImageBitmap(img, {
+            resizeWidth: rw,
+            resizeHeight: rh,
+            resizeQuality: "medium"
+          });
+          guideImage = bmp;
+          drawGuideImageOnce(bmp);
+          state.guideVisible = true;
+          updateGuideLayerDisplay();
+          return;
+        } catch (_) {}
+      }
+
+      const tmp = document.createElement("canvas");
+      tmp.width = rw;
+      tmp.height = rh;
+      tmp.getContext("2d").drawImage(img, 0, 0, rw, rh);
+
+      guideImage = tmp;
+      drawGuideImageOnce(tmp);
+      state.guideVisible = true;
+      updateGuideLayerDisplay();
+    } finally {
+      URL.revokeObjectURL(url);
+      if (guideImageURL === url) guideImageURL = null;
     }
-
-    const iw = img.naturalWidth || img.width;
-    const ih = img.naturalHeight || img.height;
-    const scale = Math.min(1, GUIDE_MAX / Math.max(iw, ih));
-    const tmp = document.createElement("canvas");
-    tmp.width = Math.max(1, Math.round(iw * scale));
-    tmp.height = Math.max(1, Math.round(ih * scale));
-    tmp.getContext("2d").drawImage(img, 0, 0, tmp.width, tmp.height);
-
-    guideImage = tmp;
-    drawGuideImageOnce(tmp);
-    state.guideVisible = true;
-    updateGuideLayerDisplay();
   }
 
   function clearGuideImage() {
