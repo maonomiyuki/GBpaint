@@ -23,7 +23,9 @@
     .canvas-wrap { position:absolute; left:0; top:0; width:fit-content; height:fit-content; box-shadow:0 0 0 1px #444; background:#000; touch-action:none; user-select:none; -webkit-user-select:none; -webkit-touch-callout:none; cursor:crosshair; }
     .canvas-wrap.mouse-pan { cursor:grabbing; }
     canvas { image-rendering:pixelated; image-rendering:crisp-edges; display:block; touch-action:none; user-select:none; -webkit-user-select:none; -webkit-touch-callout:none; }
-    #overlayCanvas { position:absolute; left:0; top:0; pointer-events:none; touch-action:none; user-select:none; -webkit-user-select:none; -webkit-touch-callout:none; }
+    #guideCanvas { position:absolute; left:0; top:0; pointer-events:none; touch-action:none; user-select:none; -webkit-user-select:none; -webkit-touch-callout:none; z-index:0; }
+    #paintCanvas { position:relative; z-index:1; }
+    #overlayCanvas { position:absolute; left:0; top:0; pointer-events:none; touch-action:none; user-select:none; -webkit-user-select:none; -webkit-touch-callout:none; z-index:2; }
     .header-actions { display:flex; gap:6px; align-items:center; touch-action:manipulation; -webkit-user-select:none; user-select:none; pointer-events:auto; }
     .header-actions button { min-width:44px; min-height:44px; font-size:20px; font-weight:700; padding:0; touch-action:manipulation; -webkit-user-select:none; user-select:none; pointer-events:auto; }
     #polygonConfirmBtn { min-width:34px; min-height:34px; font-size:18px; background:#1f4f2d; border-color:#4f9a6f; }
@@ -114,6 +116,17 @@
       <div id="uniqueTilesList"></div>
     </details>
 
+
+
+    <h2>ガイド</h2>
+    <div class="row">
+      <button id="guideLoadBtn">画像を読み込む</button>
+      <label><input type="checkbox" id="guideVisibleToggle" /> 表示</label>
+      <label>不透明度 <input type="range" id="guideOpacity" min="0" max="100" value="40" /></label>
+      <button id="guideClearBtn">削除</button>
+    </div>
+    <input type="file" id="guideFileInput" accept="image/*" style="display:none" />
+
     <h2 data-i18n="file">ファイル</h2>
     <div class="row">
       <button id="newBtn"></button>
@@ -139,6 +152,7 @@
 
   <main class="workspace">
     <div class="canvas-wrap" id="canvasWrap">
+      <canvas id="guideCanvas" width="160" height="144"></canvas>
       <canvas id="paintCanvas" width="160" height="144"></canvas>
       <canvas id="overlayCanvas" width="160" height="144"></canvas>
     </div>
@@ -212,9 +226,12 @@
     isPinching:false, isPanning:false, isDrawing:false, pendingDraw:false,
     strokeBefore:null, undoStack:[], redoStack:[],
     fitScale: 1, viewScale: 1, viewOffsetX: 0, viewOffsetY: 0,
-    shapePreview:null, polygonPoints:[], polygonMode:"idle", polygonCursor:null, polygonHold:null
+    shapePreview:null, polygonPoints:[], polygonMode:"idle", polygonCursor:null, polygonHold:null,
+    guideVisible:false, guideOpacity:0.4
   };
 
+  const guideCanvas = document.getElementById("guideCanvas");
+  const guideCtx = guideCanvas.getContext("2d");
   const paintCanvas = document.getElementById("paintCanvas");
   const paintCtx = paintCanvas.getContext("2d", { willReadFrequently: true });
   const overlayCanvas = document.getElementById("overlayCanvas");
@@ -239,7 +256,12 @@
     langSelect: document.getElementById("langSelect"),
     undoBtn: document.getElementById("undoBtn"),
     redoBtn: document.getElementById("redoBtn"),
-    polygonConfirmBtn: document.getElementById("polygonConfirmBtn")
+    polygonConfirmBtn: document.getElementById("polygonConfirmBtn"),
+    guideLoadBtn: document.getElementById("guideLoadBtn"),
+    guideVisibleToggle: document.getElementById("guideVisibleToggle"),
+    guideOpacity: document.getElementById("guideOpacity"),
+    guideClearBtn: document.getElementById("guideClearBtn"),
+    guideFileInput: document.getElementById("guideFileInput")
   };
 
   ui.shapeMode = document.getElementById("shapeMode");
@@ -271,6 +293,7 @@
   let polygonHoldPointerId = null;
   let polygonHoldConfirmed = false;
   let lastCanvasPointerType = null;
+  let guideImage = null;
 
   function t(k, ...args) {
     const v = STR[state.lang][k];
@@ -306,6 +329,44 @@
     return { dpr, displayW, displayH, scaleX: displayW / W, scaleY: displayH / H };
   }
 
+  function clearGuideCanvas() {
+    guideCtx.setTransform(1, 0, 0, 1, 0, 0);
+    guideCtx.clearRect(0, 0, W, H);
+  }
+
+  function drawGuideCanvas() {
+    clearGuideCanvas();
+    if (!guideImage) {
+      guideCanvas.style.display = "none";
+      return;
+    }
+    guideCanvas.style.display = state.guideVisible ? "block" : "none";
+    if (!state.guideVisible) return;
+
+    const iw = Math.max(1, guideImage.naturalWidth || guideImage.width || 1);
+    const ih = Math.max(1, guideImage.naturalHeight || guideImage.height || 1);
+    const scale = Math.max(W / iw, H / ih);
+    const srcW = W / scale;
+    const srcH = H / scale;
+    const sx = Math.max(0, (iw - srcW) / 2);
+    const sy = Math.max(0, (ih - srcH) / 2);
+
+    guideCtx.save();
+    guideCtx.globalAlpha = Math.max(0, Math.min(1, state.guideOpacity));
+    guideCtx.drawImage(guideImage, sx, sy, srcW, srcH, 0, 0, W, H);
+    guideCtx.restore();
+  }
+
+  function clearGuideImage() {
+    guideImage = null;
+    state.guideVisible = false;
+    state.guideOpacity = 0.4;
+    ui.guideVisibleToggle.checked = false;
+    ui.guideOpacity.value = "40";
+    clearGuideCanvas();
+    guideCanvas.style.display = "none";
+  }
+
   function clampViewOffset() {
     const workspace = document.querySelector(".workspace");
     const viewportW = workspace.clientWidth;
@@ -328,12 +389,15 @@
     const displayScale = state.fitScale * state.viewScale;
     const displayW = W * displayScale;
     const displayH = H * displayScale;
+    guideCanvas.style.width = `${displayW}px`;
+    guideCanvas.style.height = `${displayH}px`;
     paintCanvas.style.width = `${displayW}px`;
     paintCanvas.style.height = `${displayH}px`;
     const wrap = document.getElementById("canvasWrap");
     wrap.style.left = `${state.viewOffsetX}px`;
     wrap.style.top = `${state.viewOffsetY}px`;
     resizeOverlayCanvas();
+    drawGuideCanvas();
   }
 
   function resetViewTransform() {
@@ -898,11 +962,11 @@
     if (!data.pixels) throw new Error(t("errPixelsMissing"));
     const arr = decodePixelsBase64(data.pixels);
     if (arr.length !== W * H) throw new Error(t("errPixelsInvalid"));
-    state.pixels = arr; state.undoStack.length = 0; state.redoStack.length = 0; cancelPolygon();
+    state.pixels = arr; state.undoStack.length = 0; state.redoStack.length = 0; cancelPolygon(); clearGuideImage();
     if (data.meta?.lang && STR[data.meta.lang]) { state.lang = data.meta.lang; ui.langSelect.value = state.lang; localStorage.setItem("gbpaint_lang", state.lang); updateI18n(); }
     renderCanvas(); updateUndoRedoButtons();
   }
-  function newCanvas() { if (!confirm(t("confirmNew"))) return; state.pixels = new Uint8Array(W * H).fill(bgIndex); state.undoStack.length = 0; state.redoStack.length = 0; cancelPolygon(); renderCanvas(); updateUndoRedoButtons(); }
+  function newCanvas() { if (!confirm(t("confirmNew"))) return; state.pixels = new Uint8Array(W * H).fill(bgIndex); state.undoStack.length = 0; state.redoStack.length = 0; cancelPolygon(); clearGuideImage(); renderCanvas(); updateUndoRedoButtons(); }
 
   function exportPNGScale(scale) {
     const out = document.createElement("canvas"); out.width = W * scale; out.height = H * scale;
@@ -968,6 +1032,8 @@
     ui.gridToggle.checked = state.showGrid; ui.tileSnapToggle.checked = state.tileSnap; ui.heatmapToggle.checked = state.showHeatmap; ui.pencilOnlyToggle.checked = state.pencilOnly; ui.includeEmptyTiles.checked = state.includeEmptyTiles;
     if (ui.shapeMode) ui.shapeMode.value = state.shapeMode;
     ui.polygonConfirmBtn.hidden = !(state.tool === "polygon" && state.polygonMode !== "idle");
+    ui.guideVisibleToggle.checked = state.guideVisible;
+    ui.guideOpacity.value = String(Math.round(state.guideOpacity * 100));
     selectColor(state.selectedColor); updateUndoRedoButtons();
   }
 
@@ -1387,6 +1453,35 @@
     ui.shapeMode.addEventListener("change", () => { state.shapeMode = ui.shapeMode.value; renderOverlay(); });
     ui.polygonCancelBtn.addEventListener("click", () => { cancelPolygon(); });
 
+    ui.guideLoadBtn.addEventListener("click", () => ui.guideFileInput.click());
+    ui.guideVisibleToggle.addEventListener("change", () => {
+      state.guideVisible = ui.guideVisibleToggle.checked;
+      drawGuideCanvas();
+    });
+    ui.guideOpacity.addEventListener("input", () => {
+      state.guideOpacity = Math.max(0, Math.min(1, Number(ui.guideOpacity.value) / 100));
+      drawGuideCanvas();
+    });
+    ui.guideClearBtn.addEventListener("click", clearGuideImage);
+    ui.guideFileInput.addEventListener("change", (ev) => {
+      const file = ev.target.files[0];
+      if (!file) return;
+      const url = URL.createObjectURL(file);
+      const img = new Image();
+      img.onload = () => {
+        guideImage = img;
+        state.guideVisible = true;
+        drawGuideCanvas();
+        syncUI();
+        URL.revokeObjectURL(url);
+      };
+      img.onerror = () => {
+        URL.revokeObjectURL(url);
+      };
+      img.src = url;
+      ev.target.value = "";
+    });
+
     document.getElementById("newBtn").addEventListener("click", newCanvas);
     document.getElementById("saveJsonBtn").addEventListener("click", saveJSON);
     document.getElementById("loadJsonBtn").addEventListener("click", () => ui.jsonFileInput.click());
@@ -1459,6 +1554,7 @@
 
     updateI18n();
     syncUI();
+    drawGuideCanvas();
     updateScale();
     renderCanvas();
   }
