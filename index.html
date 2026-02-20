@@ -296,6 +296,7 @@
   const TAP_CLUSTER_RADIUS = 30;
   const POLY_HOLD_MS = 500;
   const POLY_HOLD_MOVE = 10;
+  const DRAW_TAP_SLOP_PX = 8;
   let tapInfo = { count: 0, time: 0, x: 0, y: 0 };
   let activeStrokePointerId = null;
   let activeDown = null;
@@ -308,6 +309,7 @@
   let polygonHoldPointerId = null;
   let polygonHoldConfirmed = false;
   let lastCanvasPointerType = null;
+  let pendingHasDragged = false;
   let guideImage = null;
 
   function t(k, ...args) {
@@ -1293,6 +1295,7 @@
       }
 
       activeStrokePointerId = ev.pointerId;
+      pendingHasDragged = false;
       state.pendingDraw = true;
       pendingPointerId = ev.pointerId;
       pendingStartPixel = pt;
@@ -1358,27 +1361,21 @@
           return;
         }
 
-        const moved = Math.hypot(ev.clientX - activeDown.x, ev.clientY - activeDown.y) > 3;
-        if (moved) {
-          if (state.tool !== "fill") {
-            state.pendingDraw = false;
-            state.isDrawing = true;
-            beginStroke();
-            drawBrush(pendingStartPixel.x, pendingStartPixel.y);
-            const pt = getPixelFromPointerEvent(ev);
-            if (!pt) return;
-            const pts = linePoints(pendingStartPixel.x, pendingStartPixel.y, pt.x, pt.y);
-            let changed = false;
-            for (const [x, y] of pts) changed = drawBrush(x, y) || changed;
-            if (changed) renderCanvas();
-            lastPoint = pt;
-            updateCanvasGestureBlock();
-          } else {
-            state.pendingDraw = false;
-            pendingPointerId = null;
-            pendingStartPixel = null;
-            updateCanvasGestureBlock();
-          }
+        const dragDistanceSq = (ev.clientX - activeDown.x) * (ev.clientX - activeDown.x) + (ev.clientY - activeDown.y) * (ev.clientY - activeDown.y);
+        if (dragDistanceSq > DRAW_TAP_SLOP_PX * DRAW_TAP_SLOP_PX) pendingHasDragged = true;
+        if (pendingHasDragged && state.tool !== "fill") {
+          state.pendingDraw = false;
+          state.isDrawing = true;
+          beginStroke();
+          drawBrush(pendingStartPixel.x, pendingStartPixel.y);
+          const pt = getPixelFromPointerEvent(ev);
+          if (!pt) return;
+          const pts = linePoints(pendingStartPixel.x, pendingStartPixel.y, pt.x, pt.y);
+          let changed = false;
+          for (const [x, y] of pts) changed = drawBrush(x, y) || changed;
+          if (changed) renderCanvas();
+          lastPoint = pt;
+          updateCanvasGestureBlock();
         }
       }
 
@@ -1421,6 +1418,14 @@
           commitShape(state.shapePreview);
           state.shapePreview = null;
           renderOverlay();
+        } else if ((state.tool === "pen" || state.tool === "eraser") && !pendingHasDragged && !wasPinching && !state.isPinching && canDrawWithPointerType(ev.pointerType)) {
+          beginStroke();
+          const tapPt = pendingStartPixel || getPixelFromPointerEvent(ev);
+          if (tapPt) {
+            const changed = drawBrush(tapPt.x, tapPt.y);
+            if (changed) renderCanvas();
+          }
+          endStroke();
         }
       }
 
@@ -1435,6 +1440,7 @@
       if (ev.pointerId === pendingPointerId) {
         pendingPointerId = null;
         pendingStartPixel = null;
+        pendingHasDragged = false;
       }
       activeDown = null;
       updateCanvasGestureBlock();
@@ -1462,6 +1468,7 @@
         state.pendingDraw = false;
         pendingPointerId = null;
         pendingStartPixel = null;
+        pendingHasDragged = false;
         state.shapePreview = null;
         renderOverlay();
       }
