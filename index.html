@@ -1,0 +1,1779 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
+  <title>GB Paint</title>
+  <style>
+    :root { --bg:#111; --panel:#1c1c1c; --text:#e9e9e9; --accent:#86c06c; --warn:#ffcc66; --mobile-topbar-h:56px; }
+    * { box-sizing: border-box; }
+    body { margin:0; background:var(--bg); color:var(--text); font-family: ui-sans-serif,system-ui,sans-serif; height:100dvh; overflow:hidden; }
+    #appRoot { display:grid; grid-template-columns:340px 1fr; height:100dvh; width:100%; }
+    .panel { background:var(--panel); padding:12px; overflow-y:auto; overflow-x:hidden; border-right:1px solid #333; min-height:0; }
+    .top-row { display:flex; justify-content:space-between; align-items:center; gap:8px; }
+    h1 { margin:0 0 8px; font-size:1.2rem; }
+    .row { display:flex; gap:8px; flex-wrap:wrap; align-items:center; margin:6px 0; }
+    button, select, input[type="checkbox"] { background:#2b2b2b; color:var(--text); border:1px solid #444; border-radius:6px; padding:4px 8px; }
+    button.active { outline:2px solid var(--accent); }
+    button:disabled { opacity:.45; cursor:not-allowed; }
+    .swatch { width:28px; height:28px; border:2px solid #000; border-radius:4px; cursor:pointer; }
+    .meta { font-size:.88rem; opacity:.95; }
+    .warn { color:var(--warn); font-weight:700; }
+    .workspace { position:relative; padding:12px; overflow:hidden; min-height:0; }
+    .canvas-wrap { position:absolute; left:0; top:0; width:fit-content; height:fit-content; box-shadow:0 0 0 1px #444; background:#000; touch-action:none; user-select:none; -webkit-user-select:none; -webkit-touch-callout:none; cursor:crosshair; }
+    .canvas-wrap.mouse-pan { cursor:grabbing; }
+    canvas { image-rendering:pixelated; image-rendering:crisp-edges; display:block; touch-action:none; user-select:none; -webkit-user-select:none; -webkit-touch-callout:none; }
+    #guideCanvas { position:absolute; left:0; top:0; width:100%; height:100%; pointer-events:none; z-index:2; }
+    #paintCanvas { position:relative; z-index:1; }
+    #overlayCanvas { position:absolute; left:0; top:0; pointer-events:none; z-index:3; }
+    .header-actions { display:flex; gap:6px; align-items:center; }
+    .header-actions button { min-width:44px; min-height:44px; font-size:20px; font-weight:700; padding:0; }
+    #polygonConfirmBtn { min-width:34px; min-height:34px; font-size:18px; background:#1f4f2d; border-color:#4f9a6f; }
+    details summary { cursor:pointer; }
+    #uniqueTilesList { display:grid; grid-template-columns:repeat(auto-fill,minmax(90px,1fr)); gap:8px; margin-top:8px; }
+    .tile-item { background:#262626; border:1px solid #3f3f3f; border-radius:6px; padding:4px; font-size:.75rem; }
+    .tile-item canvas { width:64px; height:64px; margin:0 auto; }
+    kbd { background:#333; border-radius:4px; padding:1px 4px; border:1px solid #444; }
+    #mobileTopbar, #sidebarBackdrop { display:none; }
+
+    @media (min-width:600px) and (max-width:1023px) {
+      #appRoot { grid-template-columns:280px 1fr; }
+    }
+
+    @media (max-width:599px) {
+      #appRoot { display:block; height:100dvh; }
+      #mobileTopbar { position:fixed; left:0; top:0; right:0; z-index:20; display:flex; align-items:center; justify-content:space-between; gap:8px; min-height:var(--mobile-topbar-h); padding:calc(8px + env(safe-area-inset-top)) 10px 8px; background:#1a1a1a; border-bottom:1px solid #333; }
+      #mobileTopbar .title-wrap { display:flex; align-items:center; gap:8px; min-width:0; }
+      #mobileTopbar .title { font-weight:700; white-space:nowrap; }
+      #mobileTopbar .mini-actions { display:flex; gap:6px; }
+      #mobileTopbar button, #mobileTopbar select { min-height:36px; padding:4px 10px; }
+      #mobileTopbar .icon-btn { min-width:36px; font-size:18px; padding:0; }
+
+      #stage { position:fixed; inset:0; top:calc(var(--mobile-topbar-h) + env(safe-area-inset-top)); z-index:1; }
+      #stage.blocked { pointer-events:none; }
+      .workspace { padding:8px; }
+
+      #sidebarBackdrop { position:fixed; inset:0; z-index:24; background:rgba(0,0,0,.45); }
+      #sidebar { position:fixed; left:0; right:0; bottom:0; top:auto; z-index:25; border-right:none; border-top:1px solid #333; border-radius:14px 14px 0 0; max-height:min(80dvh, 680px); padding:10px 12px calc(12px + env(safe-area-inset-bottom)); transform:translateY(102%); transition:transform .2s ease; }
+      #sidebar .top-row { display:none; }
+      body.ui-open #sidebar { transform:translateY(0); }
+      body.ui-open #sidebarBackdrop { display:block; }
+    }
+</style>
+</head>
+<body>
+  <header id="mobileTopbar">
+    <button id="mobileMenuBtn" class="icon-btn" data-i18n-title="mobile.menuTitle">☰</button>
+    <div class="title-wrap">
+      <span class="title">GB Paint</span>
+      <button id="mobileLangBtn"></button>
+    </div>
+    <div class="mini-actions">
+      <button id="mobileUndoBtn" class="icon-btn" data-i18n-title="actions.undo">↶</button>
+      <button id="mobileRedoBtn" class="icon-btn" data-i18n-title="actions.redo">↷</button>
+    </div>
+  </header>
+  <div id="sidebarBackdrop"></div>
+
+  <div id="appRoot">
+  <aside class="panel" id="sidebar">
+    <div class="top-row">
+      <h1>GB Paint</h1>
+      <div class="header-actions">
+        <button id="undoBtn" data-i18n-title="actions.undo">↶</button>
+        <button id="redoBtn" data-i18n-title="actions.redo">↷</button>
+        <button id="polygonConfirmBtn" data-i18n-title="actions.polygonConfirm" hidden>✓</button>
+        <label>
+          <span data-i18n="common.language"></span>
+          <select id="langSelect">
+            <option value="ja">JP</option>
+            <option value="en">EN</option>
+          </select>
+        </label>
+      </div>
+    </div>
+    <div class="meta" id="subtitle"></div>
+    <div class="row">
+      <button id="openAllSectionsBtn" data-i18n="sections.openAll"></button>
+      <button id="closeAllSectionsBtn" data-i18n="sections.closeAll"></button>
+    </div>
+
+    <details id="sec-tools" class="ui-sec">
+      <summary><span data-i18n="sections.tools"></span></summary>
+      <div class="row">
+        <button id="toolPen" data-i18n="tools.pen"></button>
+        <button id="toolEraser" data-i18n="tools.eraser"></button>
+        <button id="toolFill" data-i18n="tools.fill"></button>
+        <button id="toolLine" data-i18n="tools.line"></button>
+        <button id="toolRect" data-i18n="tools.rect"></button>
+        <button id="toolEllipse" data-i18n="tools.ellipse"></button>
+        <button id="toolPolygon" data-i18n="tools.polygon"></button>
+      </div>
+    </details>
+
+    <details id="sec-shape" class="ui-sec">
+      <summary><span data-i18n="sections.shape"></span></summary>
+      <div class="row">
+        <label><span data-i18n="shape.mode"></span>
+          <select id="shapeMode">
+            <option value="stroke" data-i18n="shape.stroke"></option>
+            <option value="fill" data-i18n="shape.fill"></option>
+          </select>
+        </label>
+        <button id="polygonCancelBtn" data-i18n="actions.polygonCancel"></button>
+      </div>
+    </details>
+
+    <details id="sec-brush" class="ui-sec">
+      <summary><span data-i18n="sections.brush"></span></summary>
+      <div class="row" id="brushButtons">
+        <button data-size="1">1px</button>
+        <button data-size="2">2px</button>
+        <button data-size="4">4px</button>
+      </div>
+    </details>
+
+    <details id="sec-palette" class="ui-sec">
+      <summary><span data-i18n="sections.palette"></span></summary>
+      <div class="row" id="paletteRow"></div>
+    </details>
+
+    <details id="sec-pattern" class="ui-sec">
+      <summary><span data-i18n="sections.pattern"></span></summary>
+      <div class="row">
+        <label><input type="checkbox" id="patternEnabled" /> <span data-i18n="common.enabled"></span></label>
+        <select id="patternType"></select>
+        <label><input type="checkbox" id="patternInvert" /> <span data-i18n="common.invert"></span></label>
+      </div>
+    </details>
+
+    <details id="sec-display" class="ui-sec">
+      <summary><span data-i18n="sections.display"></span></summary>
+      <div class="row">
+        <label><input type="checkbox" id="gridToggle" checked /> <span data-i18n="display.grid"></span></label>
+        <label><input type="checkbox" id="tileSnapToggle" /> <span data-i18n="display.tileSnap"></span></label>
+        <label><input type="checkbox" id="heatmapToggle" /> <span data-i18n="display.heatmap"></span></label>
+        <label><input type="checkbox" id="pencilOnlyToggle" /> <span data-i18n="display.pencilOnly"></span></label>
+        <button id="resetViewBtn" data-i18n="display.resetView"></button>
+      </div>
+    </details>
+
+    <details id="sec-tile" class="ui-sec">
+      <summary><span data-i18n="sections.tileStats"></span></summary>
+      <div class="meta" id="tileStats"></div>
+      <div class="row">
+        <label><input type="checkbox" id="includeEmptyTiles" /> <span data-i18n="tile.includeEmpty"></span></label>
+      </div>
+      <div id="tileWarning" class="warn"></div>
+
+      <details>
+        <summary data-i18n="tile.uniqueList"></summary>
+        <div id="uniqueTilesList"></div>
+      </details>
+    </details>
+
+    <details id="sec-guide" class="ui-sec">
+      <summary><span data-i18n="sections.guide"></span></summary>
+      <div class="row">
+        <button id="guideLoadBtn" data-i18n="guide.loadImage"></button>
+        <label><input type="checkbox" id="guideVisibleToggle" /> <span data-i18n="guide.show"></span></label>
+        <label><span data-i18n="guide.opacity"></span> <input type="range" id="guideOpacity" min="0" max="100" value="40" /></label>
+        <button id="guideClearBtn" data-i18n="guide.clear"></button>
+      </div>
+      <div class="row">
+        <label><span data-i18n="guide.offsetX"></span> <input type="range" id="guideOffsetX" min="-80" max="80" value="0" /></label>
+        <span id="guideOffsetXValue">X:+0</span>
+        <label><span data-i18n="guide.offsetY"></span> <input type="range" id="guideOffsetY" min="-80" max="80" value="0" /></label>
+        <span id="guideOffsetYValue">Y:+0</span>
+        <button id="guideCenterBtn" data-i18n="guide.center"></button>
+      </div>
+      <input type="file" id="guideFileInput" accept="image/*" style="display:none" />
+    </details>
+
+    <details id="sec-file" class="ui-sec">
+      <summary><span data-i18n="sections.file"></span></summary>
+      <div class="row">
+        <button id="newBtn" data-i18n="file.new"></button>
+        <button id="saveJsonBtn" data-i18n="file.saveJson"></button>
+        <button id="loadJsonBtn" data-i18n="file.loadJson"></button>
+      </div>
+      <input type="file" id="jsonFileInput" accept="application/json" style="display:none" />
+    </details>
+
+    <details id="sec-png" class="ui-sec">
+      <summary><span data-i18n="sections.png"></span></summary>
+      <div class="row" id="pngButtons">
+        <button data-kind="scale" data-scale="1">160x144</button>
+        <button data-kind="scale" data-scale="2">2x</button>
+        <button data-kind="scale" data-scale="3">3x</button>
+        <button data-kind="scale" data-scale="4">4x</button>
+        <button data-kind="scale" data-scale="8">8x</button>
+        <button data-kind="square" data-size="1080">1080</button>
+        <button data-kind="square" data-size="1024">1024</button>
+      </div>
+    </details>
+
+    <details id="sec-shortcuts" class="ui-sec">
+      <summary><span data-i18n="sections.shortcuts"></span></summary>
+      <div class="meta" id="shortcuts"></div>
+    </details>
+  </aside>
+
+  <main class="workspace" id="stage">
+    <div class="canvas-wrap" id="canvasWrap">
+      <canvas id="paintCanvas" width="160" height="144"></canvas>
+      <canvas id="guideCanvas" width="160" height="144"></canvas>
+      <canvas id="overlayCanvas" width="160" height="144"></canvas>
+    </div>
+  </main>
+  </div>
+
+<script>
+(() => {
+  const W = 160, H = 144, TILE = 8, MAX_HISTORY = 100;
+  const palette = ["#071821", "#306850", "#86c06c", "#e0f8cf"];
+  const bgIndex = 3;
+
+  const STR = {
+    ja: {
+      common: { language: "言語", enabled: "有効", invert: "反転" },
+      mobile: { menuTitle: "UIを開く / 閉じる" },
+      actions: { undo: "元に戻す", redo: "やり直し", polygonConfirm: "多角形を確定", polygonCancel: "多角形をキャンセル", polygonNeedsPoints: "多角形は3点以上必要です" },
+      sections: {
+        openAll: "全て開く", closeAll: "全て閉じる", tools: "ツール", shape: "図形", brush: "ブラシサイズ", palette: "パレット",
+        pattern: "パターン塗り (P)", display: "表示", tileStats: "タイル統計", guide: "ガイド", file: "ファイル", png: "PNG書き出し", shortcuts: "ショートカット"
+      },
+      shape: { mode: "モード", stroke: "線", fill: "塗り" },
+      tools: { pen: "ペン (B)", eraser: "消しゴム (E)", fill: "塗りつぶし (G)", line: "直線 (L)", rect: "四角 (R)", ellipse: "楕円 (O)", polygon: "多角形 (K)" },
+      display: { grid: "8x8境界線 (Shift+G)", tileSnap: "8x8タイルスナップ (T)", heatmap: "ユニークタイル ヒートマップ", pencilOnly: "Apple Pencilのみ描画", resetView: "表示をリセット (0)" },
+      tile: { includeEmpty: "空タイルをユニーク数に含める", uniqueList: "ユニークタイル一覧" },
+      guide: { loadImage: "画像を読み込み", show: "表示", opacity: "不透明度", clear: "削除", offsetX: "位置X", offsetY: "位置Y", center: "センターに戻す" },
+      file: { new: "新規", saveJson: "JSON保存", loadJson: "JSON読込" },
+      app: { subtitle: "160x144 / 固定4色 / タイル制約可視化", langBtn: "EN", tilesUsed: (n) => `Tiles used: ${n} / 360`, uniqueTiles: (n) => `Unique tiles: ${n} / 192`, warnUnique: (n) => `⚠ Unique tiles exceed GB limit (192): ${n}`, fillCount: (n) => `出現 ${n}回`, confirmNew: "新規作成しますか？未保存の内容は失われます。", errLoad: (m) => `JSON読込エラー: ${m}`, errSize: (w,h) => `サイズ不一致: ${w}x${h} (期待: 160x144)`, errPixelsMissing: "pixelsがありません", errPixelsInvalid: "pixels長が不正です",
+        sc1: "<kbd>1-4</kbd> 色選択 / <kbd>B</kbd> ペン / <kbd>E</kbd> 消しゴム / <kbd>G</kbd> 塗りつぶし / <kbd>L/R/O/K</kbd> 図形 / <kbd>P</kbd> パターン",
+        sc2: "<kbd>Shift+G</kbd> グリッド / <kbd>T</kbd> タイルスナップ / <kbd>[</kbd><kbd>]</kbd> ブラシサイズ",
+        sc3: "<kbd>Ctrl/Cmd+Z</kbd> Undo / <kbd>Ctrl/Cmd+Shift+Z</kbd> または <kbd>Ctrl+Y</kbd> Redo",
+        sc4: "<kbd>Ctrl/Cmd+S</kbd> JSON保存 / <kbd>Ctrl/Cmd+O</kbd> JSON読込 / <kbd>Ctrl/Cmd+N</kbd> 新規 / <kbd>Ctrl/Cmd+E</kbd> PNG"
+      }
+    },
+    en: {
+      common: { language: "Language", enabled: "Enabled", invert: "Invert" },
+      mobile: { menuTitle: "Open / close UI" },
+      actions: { undo: "Undo", redo: "Redo", polygonConfirm: "Confirm polygon", polygonCancel: "Cancel polygon", polygonNeedsPoints: "Polygon requires at least 3 points" },
+      sections: {
+        openAll: "Open all", closeAll: "Close all", tools: "Tools", shape: "Shape", brush: "Brush Size", palette: "Palette",
+        pattern: "Pattern Paint (P)", display: "Display", tileStats: "Tile Stats", guide: "Guide", file: "File", png: "PNG Export", shortcuts: "Shortcuts"
+      },
+      shape: { mode: "Mode", stroke: "Stroke", fill: "Fill" },
+      tools: { pen: "Pen (B)", eraser: "Eraser (E)", fill: "Fill (G)", line: "Line (L)", rect: "Rectangle (R)", ellipse: "Ellipse (O)", polygon: "Polygon (K)" },
+      display: { grid: "8x8 Boundaries (Shift+G)", tileSnap: "8x8 Tile Snap (T)", heatmap: "Unique Tiles Heatmap", pencilOnly: "Draw with Apple Pencil only", resetView: "Reset View (0)" },
+      tile: { includeEmpty: "Include empty tile in unique count", uniqueList: "Unique Tiles" },
+      guide: { loadImage: "Load Image", show: "Show", opacity: "Opacity", clear: "Clear", offsetX: "Offset X", offsetY: "Offset Y", center: "Center" },
+      file: { new: "New", saveJson: "Save JSON", loadJson: "Load JSON" },
+      app: { subtitle: "160x144 / fixed 4 colors / tile-limit aware", langBtn: "JP", tilesUsed: (n) => `Tiles used: ${n} / 360`, uniqueTiles: (n) => `Unique tiles: ${n} / 192`, warnUnique: (n) => `⚠ Unique tiles exceed GB limit (192): ${n}`, fillCount: (n) => `${n} uses`, confirmNew: "Create new canvas? Unsaved content will be lost.", errLoad: (m) => `JSON load error: ${m}`, errSize: (w,h) => `Size mismatch: ${w}x${h} (expected: 160x144)`, errPixelsMissing: "Missing pixels", errPixelsInvalid: "Invalid pixel length",
+        sc1: "<kbd>1-4</kbd> color / <kbd>B</kbd> pen / <kbd>E</kbd> eraser / <kbd>G</kbd> fill / <kbd>L/R/O/K</kbd> shapes / <kbd>P</kbd> pattern",
+        sc2: "<kbd>Shift+G</kbd> grid / <kbd>T</kbd> tile snap / <kbd>[</kbd><kbd>]</kbd> brush size",
+        sc3: "<kbd>Ctrl/Cmd+Z</kbd> Undo / <kbd>Ctrl/Cmd+Shift+Z</kbd> or <kbd>Ctrl+Y</kbd> Redo",
+        sc4: "<kbd>Ctrl/Cmd+S</kbd> save JSON / <kbd>Ctrl/Cmd+O</kbd> load JSON / <kbd>Ctrl/Cmd+N</kbd> new / <kbd>Ctrl/Cmd+E</kbd> PNG"
+      }
+    }
+  };
+
+  window.__i18nMissingKeys = [];
+  const PATTERNS = [
+    { key:"d4_125", label:"4x4 12.5%", density:0.125 },
+    { key:"d4_25", label:"4x4 25%", density:0.25 },
+    { key:"d4_375", label:"4x4 37.5%", density:0.375 },
+    { key:"d4_50", label:"4x4 50%", density:0.5 },
+    { key:"d4_625", label:"4x4 62.5%", density:0.625 },
+    { key:"d4_75", label:"4x4 75%", density:0.75 },
+    { key:"d4_875", label:"4x4 87.5%", density:0.875 }
+  ];
+  const BAYER4 = [
+    [0, 8, 2,10],
+    [12,4,14,6],
+    [3,11,1,9],
+    [15,7,13,5],
+  ];
+
+  const state = {
+    pixels: new Uint8Array(W * H).fill(bgIndex), tool:"pen", brushSize:1, selectedColor:0,
+    shapeMode:"stroke",
+    showGrid:true, tileSnap:false, patternEnabled:false, patternType:"d4_50", patternInvert:false,
+    includeEmptyTiles:false, showHeatmap:false, lang: localStorage.getItem("gbpaint_lang") || "ja",
+    pencilOnly: localStorage.getItem("gbpaint_pencil_only") === "1",
+    isPinching:false, isPanning:false, isDrawing:false, pendingDraw:false,
+    strokeBefore:null, undoStack:[], redoStack:[],
+    fitScale: 1, viewScale: 1, viewOffsetX: 0, viewOffsetY: 0,
+    shapePreview:null, polygonPoints:[], polygonMode:"idle", polygonCursor:null, polygonHold:null,
+    guideVisible:false, guideOpacity:0.4, guideOffsetX:0, guideOffsetY:0
+  };
+
+  const guideCanvas = document.getElementById("guideCanvas");
+  const guideCtx = guideCanvas.getContext("2d");
+  const paintCanvas = document.getElementById("paintCanvas");
+  const paintCtx = paintCanvas.getContext("2d", { willReadFrequently: true });
+  const overlayCanvas = document.getElementById("overlayCanvas");
+  const overlayCtx = overlayCanvas.getContext("2d");
+
+  guideCanvas.width = W;
+  guideCanvas.height = H;
+
+  const ui = {
+    paletteRow: document.getElementById("paletteRow"),
+    brushButtons: [...document.querySelectorAll("#brushButtons button")],
+    patternEnabled: document.getElementById("patternEnabled"),
+    patternType: document.getElementById("patternType"),
+    patternInvert: document.getElementById("patternInvert"),
+    gridToggle: document.getElementById("gridToggle"),
+    tileSnapToggle: document.getElementById("tileSnapToggle"),
+    heatmapToggle: document.getElementById("heatmapToggle"),
+    pencilOnlyToggle: document.getElementById("pencilOnlyToggle"),
+    resetViewBtn: document.getElementById("resetViewBtn"),
+    includeEmptyTiles: document.getElementById("includeEmptyTiles"),
+    tileStats: document.getElementById("tileStats"),
+    tileWarning: document.getElementById("tileWarning"),
+    uniqueTilesList: document.getElementById("uniqueTilesList"),
+    jsonFileInput: document.getElementById("jsonFileInput"),
+    langSelect: document.getElementById("langSelect"),
+    undoBtn: document.getElementById("undoBtn"),
+    redoBtn: document.getElementById("redoBtn"),
+    polygonConfirmBtn: document.getElementById("polygonConfirmBtn"),
+    guideLoadBtn: document.getElementById("guideLoadBtn"),
+    guideVisibleToggle: document.getElementById("guideVisibleToggle"),
+    guideOpacity: document.getElementById("guideOpacity"),
+    guideClearBtn: document.getElementById("guideClearBtn"),
+    guideFileInput: document.getElementById("guideFileInput"),
+    guideOffsetX: document.getElementById("guideOffsetX"),
+    guideOffsetY: document.getElementById("guideOffsetY"),
+    guideOffsetXValue: document.getElementById("guideOffsetXValue"),
+    guideOffsetYValue: document.getElementById("guideOffsetYValue"),
+    guideCenterBtn: document.getElementById("guideCenterBtn"),
+    openAllSectionsBtn: document.getElementById("openAllSectionsBtn"),
+    closeAllSectionsBtn: document.getElementById("closeAllSectionsBtn"),
+    sections: [...document.querySelectorAll("details.ui-sec")],
+    mobileMenuBtn: document.getElementById("mobileMenuBtn"),
+    mobileLangBtn: document.getElementById("mobileLangBtn"),
+    mobileUndoBtn: document.getElementById("mobileUndoBtn"),
+    mobileRedoBtn: document.getElementById("mobileRedoBtn"),
+    sidebarBackdrop: document.getElementById("sidebarBackdrop"),
+    stage: document.getElementById("stage")
+  };
+
+  ui.shapeMode = document.getElementById("shapeMode");
+  ui.polygonCancelBtn = document.getElementById("polygonCancelBtn");
+
+  const activePointers = new Map();
+  let pinchMode = false;
+  let canvasGestureActive = false;
+  let pendingPointerId = null;
+  let pendingStartPixel = null;
+  let pinchPrevDist = 0;
+  let pinchPrevCentroid = { x: 0, y: 0 };
+  const MIN_VIEW_SCALE = 0.5;
+  const MAX_VIEW_SCALE = 16;
+  const TAP_MAX_MS = 320;
+  const TAP_MAX_MOVE = 12;
+  const TAP_CLUSTER_RADIUS = 30;
+  const POLY_HOLD_MS = 500;
+  const POLY_HOLD_MOVE = 10;
+  const DRAW_TAP_SLOP_PX = 8;
+  let tapInfo = { count: 0, time: 0, x: 0, y: 0 };
+  let activeStrokePointerId = null;
+  let activeDown = null;
+  let isMousePanning = false;
+  let mousePanStart = { x: 0, y: 0 };
+  let mousePanOffsetStart = { x: 0, y: 0 };
+  let wheelClampTimer = null;
+  let polygonHoldTimer = null;
+  let polygonHoldTick = null;
+  let polygonHoldPointerId = null;
+  let polygonHoldConfirmed = false;
+  let lastCanvasPointerType = null;
+  let pendingHasDragged = false;
+  let guideImage = null;
+
+  function getI18nValue(lang, key) {
+    return key.split(".").reduce((acc, part) => (acc && Object.prototype.hasOwnProperty.call(acc, part) ? acc[part] : undefined), STR[lang]);
+  }
+
+  function t(key, ...args) {
+    const value = getI18nValue(state.lang, key);
+    if (value === undefined) {
+      if (!window.__i18nMissingKeys.includes(key)) {
+        window.__i18nMissingKeys.push(key);
+        console.error(`[i18n] missing key: ${key}`);
+      }
+      return `[[MISSING: ${key}]]`;
+    }
+    return typeof value === "function" ? value(...args) : value;
+  }
+
+  const SECTIONS_STORAGE_KEY = "gbpaint_sections_open";
+
+  function saveSectionsState() {
+    if (!ui.sections?.length) return;
+    const openIds = ui.sections.filter(sec => sec.open).map(sec => sec.id);
+    localStorage.setItem(SECTIONS_STORAGE_KEY, JSON.stringify(openIds));
+  }
+
+  function setAllSectionsOpen(nextOpen) {
+    if (!ui.sections?.length) return;
+    ui.sections.forEach(sec => { sec.open = nextOpen; });
+    saveSectionsState();
+  }
+
+  function restoreSectionsState() {
+    if (!ui.sections?.length) return;
+    let saved = null;
+    try {
+      saved = JSON.parse(localStorage.getItem(SECTIONS_STORAGE_KEY) || "null");
+    } catch (_) {
+      saved = null;
+    }
+    if (Array.isArray(saved)) {
+      const savedSet = new Set(saved);
+      ui.sections.forEach(sec => {
+        sec.open = savedSet.has(sec.id);
+      });
+      return;
+    }
+    const defaults = new Set(["sec-tools", "sec-brush", "sec-palette"]);
+    ui.sections.forEach(sec => { sec.open = defaults.has(sec.id); });
+    saveSectionsState();
+  }
+
+  function updateI18n() {
+    document.querySelectorAll("[data-i18n]").forEach(el => { el.textContent = t(el.dataset.i18n); });
+    document.querySelectorAll("[data-i18n-title]").forEach(el => { el.title = t(el.dataset.i18nTitle); });
+    document.getElementById("subtitle").textContent = t("app.subtitle");
+    document.getElementById("shortcuts").innerHTML = `<div>${t("app.sc1")}</div><div>${t("app.sc2")}</div><div>${t("app.sc3")}</div><div>${t("app.sc4")}</div>`;
+    ui.mobileLangBtn.textContent = t("app.langBtn");
+    if (window.__i18nMissingKeys.length) {
+      console.warn("[i18n] missing keys", window.__i18nMissingKeys);
+    }
+  }
+
+  function resizeOverlayCanvas() {
+    const dpr = window.devicePixelRatio || 1;
+    const displayW = paintCanvas.clientWidth || W;
+    const displayH = paintCanvas.clientHeight || H;
+    overlayCanvas.style.width = `${displayW}px`;
+    overlayCanvas.style.height = `${displayH}px`;
+    overlayCanvas.width = Math.max(1, Math.round(displayW * dpr));
+    overlayCanvas.height = Math.max(1, Math.round(displayH * dpr));
+    return { dpr, displayW, displayH, scaleX: displayW / W, scaleY: displayH / H };
+  }
+
+  function clearGuideCanvas() {
+    guideCtx.setTransform(1, 0, 0, 1, 0, 0);
+    guideCtx.clearRect(0, 0, guideCanvas.width, guideCanvas.height);
+  }
+
+  function renderGuide() {
+    clearGuideCanvas();
+    if (!guideImage || !state.guideVisible) {
+      guideCanvas.style.display = "none";
+      return;
+    }
+    guideCanvas.style.display = "block";
+    const imgW = Math.max(1, guideImage.naturalWidth || guideImage.width || 1);
+    const imgH = Math.max(1, guideImage.naturalHeight || guideImage.height || 1);
+    const scale = Math.min(W / imgW, H / imgH);
+    const drawW = imgW * scale;
+    const drawH = imgH * scale;
+    const baseX = (W - drawW) / 2;
+    const baseY = (H - drawH) / 2;
+    const x = baseX + state.guideOffsetX;
+    const y = baseY + state.guideOffsetY;
+
+    guideCtx.save();
+    guideCtx.globalAlpha = Math.max(0, Math.min(1, state.guideOpacity));
+    guideCtx.imageSmoothingEnabled = true;
+    guideCtx.drawImage(guideImage, x, y, drawW, drawH);
+    guideCtx.restore();
+  }
+
+  async function loadGuideImage(file) {
+    const url = URL.createObjectURL(file);
+    const img = new Image();
+    img.decoding = "async";
+    img.src = url;
+    try {
+      await img.decode();
+    } catch (_) {
+      await new Promise((resolve, reject) => {
+        img.onload = () => resolve();
+        img.onerror = () => reject(new Error("guide image load failed"));
+      });
+    }
+    guideImage = img;
+    state.guideVisible = true;
+    URL.revokeObjectURL(url);
+    renderGuide();
+  }
+
+  function clearGuideImage() {
+    guideImage = null;
+    state.guideVisible = false;
+    state.guideOpacity = 0.4;
+    state.guideOffsetX = 0;
+    state.guideOffsetY = 0;
+    ui.guideVisibleToggle.checked = false;
+    ui.guideOpacity.value = "40";
+    ui.guideOffsetX.value = "0";
+    ui.guideOffsetY.value = "0";
+    ui.guideOffsetXValue.textContent = "X:+0";
+    ui.guideOffsetYValue.textContent = "Y:+0";
+    clearGuideCanvas();
+    guideCanvas.style.display = "none";
+  }
+
+  function clampViewOffset() {
+    const workspace = document.querySelector(".workspace");
+    const viewportW = workspace.clientWidth;
+    const viewportH = workspace.clientHeight;
+    const scaledW = W * state.fitScale * state.viewScale;
+    const scaledH = H * state.fitScale * state.viewScale;
+
+    const minX = scaledW >= viewportW ? (viewportW - scaledW) : 0;
+    const maxX = scaledW >= viewportW ? 0 : (viewportW - scaledW);
+    const minY = scaledH >= viewportH ? (viewportH - scaledH) : 0;
+    const maxY = scaledH >= viewportH ? 0 : (viewportH - scaledH);
+
+    state.viewOffsetX = Math.max(minX, Math.min(maxX, state.viewOffsetX));
+    state.viewOffsetY = Math.max(minY, Math.min(maxY, state.viewOffsetY));
+  }
+
+  function applyViewTransform(skipClamp = false) {
+    // viewOffset is top-left position of the canvas in viewport CSS pixels.
+    if (!skipClamp) clampViewOffset();
+    const displayScale = state.fitScale * state.viewScale;
+    const displayW = W * displayScale;
+    const displayH = H * displayScale;
+    guideCanvas.style.width = `${displayW}px`;
+    guideCanvas.style.height = `${displayH}px`;
+    paintCanvas.style.width = `${displayW}px`;
+    paintCanvas.style.height = `${displayH}px`;
+    const wrap = document.getElementById("canvasWrap");
+    wrap.style.left = `${state.viewOffsetX}px`;
+    wrap.style.top = `${state.viewOffsetY}px`;
+    resizeOverlayCanvas();
+    renderGuide();
+  }
+
+  function resetViewTransform() {
+    state.viewScale = 1;
+    const workspace = document.querySelector(".workspace");
+    state.viewOffsetX = Math.max(0, (workspace.clientWidth - W * state.fitScale) / 2);
+    state.viewOffsetY = Math.max(0, (workspace.clientHeight - H * state.fitScale) / 2);
+    state.isPanning = false;
+    applyViewTransform();
+    updateScaleBadge();
+    renderOverlay();
+  }
+
+  function updateScaleBadge() {
+    const b = document.getElementById("subtitle");
+    b.dataset.scale = `x${state.viewScale.toFixed(2).replace(/\.00$/, "")}`;
+  }
+
+  function isMobileLayout() {
+    return window.innerWidth < 600;
+  }
+
+  function setMobileUIOpen(nextOpen) {
+    const open = Boolean(nextOpen) && isMobileLayout();
+    document.body.classList.toggle("ui-open", open);
+    ui.stage.classList.toggle("blocked", open);
+  }
+
+  function updateScale() {
+    const panel = document.querySelector(".panel");
+    const isMobile = isMobileLayout();
+    const panelW = !isMobile && window.innerWidth >= 600 ? panel.offsetWidth : 0;
+    const topbarH = isMobile ? document.getElementById("mobileTopbar").offsetHeight : 0;
+    const availW = Math.max(200, window.innerWidth - panelW - 24);
+    const availH = Math.max(200, window.innerHeight - topbarH - 24);
+    state.fitScale = Math.max(1, Math.floor(Math.min(availW / W, availH / H)));
+    if (state.viewOffsetX === 0 && state.viewOffsetY === 0 && state.viewScale === 1) {
+      const workspace = document.querySelector(".workspace");
+      state.viewOffsetX = Math.max(0, (workspace.clientWidth - W * state.fitScale) / 2);
+      state.viewOffsetY = Math.max(0, (workspace.clientHeight - H * state.fitScale) / 2);
+    }
+    if (!isMobile) setMobileUIOpen(false);
+    applyViewTransform();
+    updateScaleBadge();
+    renderOverlay();
+  }
+
+  function getCanvasPixelFromClient(clientX, clientY, useTileSnap = state.tileSnap) {
+    const workspaceRect = document.querySelector(".workspace").getBoundingClientRect();
+    const effectiveScale = state.fitScale * state.viewScale;
+    if (!Number.isFinite(clientX) || !Number.isFinite(clientY) || !Number.isFinite(effectiveScale) || effectiveScale <= 0) {
+      console.warn("[GBPaint] invalid pointer coordinates", { clientX, clientY, effectiveScale });
+      return null;
+    }
+    const screenX = clientX - workspaceRect.left;
+    const screenY = clientY - workspaceRect.top;
+    let x = Math.floor((screenX - state.viewOffsetX) / effectiveScale);
+    let y = Math.floor((screenY - state.viewOffsetY) / effectiveScale);
+    if (!Number.isFinite(x) || !Number.isFinite(y)) {
+      console.warn("[GBPaint] failed to convert pointer to canvas pixel", { clientX, clientY, screenX, screenY, effectiveScale });
+      return null;
+    }
+    x = Math.max(0, Math.min(W - 1, x));
+    y = Math.max(0, Math.min(H - 1, y));
+    if (useTileSnap) { x = Math.floor(x / TILE) * TILE; y = Math.floor(y / TILE) * TILE; }
+    return { x, y };
+  }
+
+  function getPixelFromPointerEvent(ev, useTileSnap = state.tileSnap) {
+    return getCanvasPixelFromClient(ev.clientX, ev.clientY, useTileSnap);
+  }
+
+  function getWorkspacePointFromEvent(ev) {
+    const rect = document.querySelector(".workspace").getBoundingClientRect();
+    return { x: ev.clientX - rect.left, y: ev.clientY - rect.top };
+  }
+
+  function handleWheel(ev) {
+    if (!document.getElementById("canvasWrap").contains(ev.target)) return;
+    ev.preventDefault();
+    const p = getWorkspacePointFromEvent(ev);
+    const oldEffective = state.fitScale * state.viewScale;
+    const anchorX = (p.x - state.viewOffsetX) / oldEffective;
+    const anchorY = (p.y - state.viewOffsetY) / oldEffective;
+
+    const zoomIntensity = 0.002;
+    const scaleFactor = Math.exp(-ev.deltaY * zoomIntensity);
+    state.viewScale = Math.max(MIN_VIEW_SCALE, Math.min(MAX_VIEW_SCALE, state.viewScale * scaleFactor));
+
+    const newEffective = state.fitScale * state.viewScale;
+    state.viewOffsetX = p.x - anchorX * newEffective;
+    state.viewOffsetY = p.y - anchorY * newEffective;
+
+    applyViewTransform(true);
+    updateScaleBadge();
+    renderOverlay();
+
+    if (wheelClampTimer) clearTimeout(wheelClampTimer);
+    wheelClampTimer = setTimeout(() => {
+      applyViewTransform(false);
+      renderOverlay();
+    }, 150);
+  }
+
+  function startMousePan(ev) {
+    isMousePanning = true;
+    const wrap = document.getElementById("canvasWrap");
+    wrap.classList.add("mouse-pan");
+    mousePanStart = { x: ev.clientX, y: ev.clientY };
+    mousePanOffsetStart = { x: state.viewOffsetX, y: state.viewOffsetY };
+    try { paintCanvas.setPointerCapture(ev.pointerId); } catch (_) {}
+  }
+
+  function moveMousePan(ev) {
+    if (!isMousePanning) return;
+    ev.preventDefault();
+    state.viewOffsetX = mousePanOffsetStart.x + (ev.clientX - mousePanStart.x);
+    state.viewOffsetY = mousePanOffsetStart.y + (ev.clientY - mousePanStart.y);
+    applyViewTransform(true);
+    renderOverlay();
+  }
+
+  function endMousePan(ev) {
+    if (!isMousePanning) return;
+    isMousePanning = false;
+    const wrap = document.getElementById("canvasWrap");
+    wrap.classList.remove("mouse-pan");
+    applyViewTransform(false);
+    renderOverlay();
+    if (paintCanvas.hasPointerCapture && paintCanvas.hasPointerCapture(ev.pointerId)) {
+      try { paintCanvas.releasePointerCapture(ev.pointerId); } catch (_) {}
+    }
+  }
+
+  function patternShouldPaint(x, y) {
+    if (!state.patternEnabled) return true;
+    const cfg = PATTERNS.find(p => p.key === state.patternType) || PATTERNS[0];
+    let density = cfg.density;
+    if (state.patternInvert) density = 1 - density;
+    return (BAYER4[y % 4][x % 4] / 16) < density;
+  }
+
+  function setPixel(x, y, idx) {
+    const i = y * W + x;
+    if (state.pixels[i] === idx) return false;
+    state.pixels[i] = idx;
+    return true;
+  }
+
+  function drawBrush(cx, cy) {
+    const size = state.brushSize, half = Math.floor(size / 2);
+    const drawColor = state.tool === "eraser" ? bgIndex : state.selectedColor;
+    let changed = false;
+    for (let dy = 0; dy < size; dy++) for (let dx = 0; dx < size; dx++) {
+      const x = cx + dx - half, y = cy + dy - half;
+      if (x < 0 || y < 0 || x >= W || y >= H) continue;
+      if (!patternShouldPaint(x, y)) continue;
+      changed = setPixel(x, y, drawColor) || changed;
+    }
+    return changed;
+  }
+
+  function drawSquareBrushTo(target, cx, cy, size, color, usePattern = true) {
+    const half = Math.floor(size / 2);
+    let changed = false;
+    for (let dy = 0; dy < size; dy++) for (let dx = 0; dx < size; dx++) {
+      const x = cx + dx - half, y = cy + dy - half;
+      if (x < 0 || y < 0 || x >= W || y >= H) continue;
+      if (usePattern && !patternShouldPaint(x, y)) continue;
+      const i = y * W + x;
+      if (target[i] === color) continue;
+      target[i] = color;
+      changed = true;
+    }
+    return changed;
+  }
+
+  function shapeStrokeColor() {
+    return state.tool === "eraser" ? bgIndex : state.selectedColor;
+  }
+
+  function shapeFillColor() {
+    return state.selectedColor;
+  }
+
+  function rasterLine(target, x0, y0, x1, y1, color, usePattern = false) {
+    let changed = false;
+    for (const [x, y] of linePoints(x0, y0, x1, y1)) {
+      changed = drawSquareBrushTo(target, x, y, state.brushSize, color, usePattern) || changed;
+    }
+    return changed;
+  }
+
+  function rectBounds(a, b) {
+    const x0 = Math.min(a.x, b.x), y0 = Math.min(a.y, b.y);
+    const x1 = Math.max(a.x, b.x), y1 = Math.max(a.y, b.y);
+    return { x0, y0, x1, y1 };
+  }
+
+  function constrainLineTo45(start, end) {
+    const dx = end.x - start.x;
+    const dy = end.y - start.y;
+    const len = Math.hypot(dx, dy);
+    if (len < 0.0001) return { x: start.x, y: start.y };
+    const step = Math.PI / 4;
+    const snapped = Math.round(Math.atan2(dy, dx) / step) * step;
+    const x = Math.round(start.x + Math.cos(snapped) * len);
+    const y = Math.round(start.y + Math.sin(snapped) * len);
+    return { x: Math.max(0, Math.min(W - 1, x)), y: Math.max(0, Math.min(H - 1, y)) };
+  }
+
+  function shapeRasterToBuffer(target, shape) {
+    const mode = state.shapeMode;
+    const strokeColor = shapeStrokeColor();
+    const fillColor = shapeFillColor();
+    let changed = false;
+    if (shape.type === "line") {
+      return rasterLine(target, shape.start.x, shape.start.y, shape.end.x, shape.end.y, strokeColor, false);
+    }
+    if (shape.type === "rect") {
+      const { x0, y0, x1, y1 } = rectBounds(shape.start, shape.end);
+      if (mode === "fill") {
+        for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) {
+          if (!patternShouldPaint(x, y)) continue;
+          const i = y * W + x;
+          if (target[i] === fillColor) continue;
+          target[i] = fillColor;
+          changed = true;
+        }
+      } else {
+        changed = rasterLine(target, x0, y0, x1, y0, strokeColor, false) || changed;
+        changed = rasterLine(target, x1, y0, x1, y1, strokeColor, false) || changed;
+        changed = rasterLine(target, x1, y1, x0, y1, strokeColor, false) || changed;
+        changed = rasterLine(target, x0, y1, x0, y0, strokeColor, false) || changed;
+      }
+      return changed;
+    }
+    if (shape.type === "ellipse") {
+      const { x0, y0, x1, y1 } = rectBounds(shape.start, shape.end);
+      const cx = (x0 + x1) / 2, cy = (y0 + y1) / 2;
+      const rx = Math.max(0.5, (x1 - x0) / 2), ry = Math.max(0.5, (y1 - y0) / 2);
+      if (mode === "fill") {
+        for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) {
+          const nx = (x - cx) / rx, ny = (y - cy) / ry;
+          const d = nx * nx + ny * ny;
+          if (d <= 1 && patternShouldPaint(x, y)) {
+            const i = y * W + x;
+            if (target[i] !== fillColor) { target[i] = fillColor; changed = true; }
+          }
+        }
+      } else {
+        const step = Math.max(16, Math.round(Math.PI * (rx + ry) * 2));
+        let prev = null;
+        for (let i = 0; i <= step; i++) {
+          const th = (i / step) * Math.PI * 2;
+          const px = Math.round(cx + Math.cos(th) * rx);
+          const py = Math.round(cy + Math.sin(th) * ry);
+          if (prev) changed = rasterLine(target, prev.x, prev.y, px, py, strokeColor, false) || changed;
+          prev = { x: px, y: py };
+        }
+      }
+      return changed;
+    }
+    if (shape.type === "polygon") {
+      const pts = shape.points || [];
+      if (pts.length < 3) return false;
+      if (mode === "fill") {
+        let minY = H - 1, maxY = 0;
+        for (const p of pts) { minY = Math.min(minY, p.y); maxY = Math.max(maxY, p.y); }
+        minY = Math.max(0, minY); maxY = Math.min(H - 1, maxY);
+        for (let y = minY; y <= maxY; y++) {
+          const xs = [];
+          for (let i = 0; i < pts.length; i++) {
+            const a = pts[i], b = pts[(i + 1) % pts.length];
+            if ((a.y <= y && b.y > y) || (b.y <= y && a.y > y)) {
+              const x = a.x + ((y - a.y) * (b.x - a.x)) / (b.y - a.y);
+              xs.push(x);
+            }
+          }
+          xs.sort((a, b) => a - b);
+          for (let i = 0; i + 1 < xs.length; i += 2) {
+            const sx = Math.max(0, Math.ceil(xs[i]));
+            const ex = Math.min(W - 1, Math.floor(xs[i + 1]));
+            for (let x = sx; x <= ex; x++) {
+              if (!patternShouldPaint(x, y)) continue;
+              const idx = y * W + x;
+              if (target[idx] !== fillColor) { target[idx] = fillColor; changed = true; }
+            }
+          }
+        }
+      } else {
+        for (let i = 0; i < pts.length; i++) {
+          const a = pts[i], b = pts[(i + 1) % pts.length];
+          changed = rasterLine(target, a.x, a.y, b.x, b.y, strokeColor, false) || changed;
+        }
+      }
+      return changed;
+    }
+    return false;
+  }
+
+  function commitShape(shape) {
+    beginStroke();
+    const changed = shapeRasterToBuffer(state.pixels, shape);
+    if (changed) renderCanvas();
+    endStroke();
+    return changed;
+  }
+
+  function cancelPolygon() {
+    state.polygonPoints = [];
+    state.polygonMode = "idle";
+    state.polygonCursor = null;
+    state.shapePreview = null;
+    clearPolygonHold();
+    renderOverlay();
+  }
+
+  function tryCommitPolygon() {
+    if (state.polygonPoints.length < 3) {
+      alert(t("actions.polygonNeedsPoints"));
+      return false;
+    }
+    const ok = commitShape({ type: "polygon", points: state.polygonPoints.slice() });
+    state.polygonPoints = [];
+    state.polygonMode = "idle";
+    state.polygonCursor = null;
+    state.shapePreview = null;
+    clearPolygonHold();
+    renderOverlay();
+    return ok;
+  }
+
+  function addPolygonPoint(pt) {
+    if (!pt) return;
+    if (state.polygonPoints.length) {
+      const prev = state.polygonPoints[state.polygonPoints.length - 1];
+      if (prev.x === pt.x && prev.y === pt.y) return;
+    }
+    state.polygonPoints.push(pt);
+    state.polygonMode = "placing";
+    state.polygonCursor = pt;
+    renderOverlay();
+  }
+
+  function clearPolygonHold() {
+    if (polygonHoldTimer) { clearTimeout(polygonHoldTimer); polygonHoldTimer = null; }
+    if (polygonHoldTick) { clearInterval(polygonHoldTick); polygonHoldTick = null; }
+    polygonHoldPointerId = null;
+    if (state.polygonHold) {
+      state.polygonHold = null;
+      renderOverlay();
+    }
+  }
+
+  function startPolygonHold(ev, pt) {
+    if (state.tool !== "polygon") return;
+    if (state.isPinching || pinchMode) return;
+    if (!state.polygonPoints.length || state.polygonPoints.length < 3) return;
+    if (ev.pointerType !== "touch" && ev.pointerType !== "pen") return;
+    clearPolygonHold();
+    polygonHoldPointerId = ev.pointerId;
+    state.polygonHold = { x: pt.x, y: pt.y, start: performance.now(), progress: 0 };
+    renderOverlay();
+    polygonHoldTick = setInterval(() => {
+      if (!state.polygonHold) return;
+      state.polygonHold.progress = Math.max(0, Math.min(1, (performance.now() - state.polygonHold.start) / POLY_HOLD_MS));
+      renderOverlay();
+    }, 16);
+    polygonHoldTimer = setTimeout(() => {
+      if (!state.polygonHold || state.isPinching || pinchMode) return;
+      polygonHoldConfirmed = true;
+      tryCommitPolygon();
+      clearPolygonHold();
+    }, POLY_HOLD_MS);
+  }
+
+  function toOverlayPoint(x, y, scaleX, scaleY) {
+    return { x: Math.round((x + 0.5) * scaleX) + 0.5, y: Math.round((y + 0.5) * scaleY) + 0.5 };
+  }
+
+  function drawShapePreview(scaleX, scaleY) {
+    if (state.isPinching) return;
+    overlayCtx.save();
+    overlayCtx.strokeStyle = "rgba(0,160,255,0.95)";
+    overlayCtx.lineWidth = 1;
+    overlayCtx.lineCap = "butt";
+    overlayCtx.lineJoin = "miter";
+
+    if (state.shapePreview && ["line", "rect", "ellipse"].includes(state.shapePreview.type)) {
+      if (state.shapePreview.type === "line") {
+        const p0 = toOverlayPoint(state.shapePreview.start.x, state.shapePreview.start.y, scaleX, scaleY);
+        const p1 = toOverlayPoint(state.shapePreview.end.x, state.shapePreview.end.y, scaleX, scaleY);
+        overlayCtx.beginPath();
+        overlayCtx.moveTo(p0.x, p0.y);
+        overlayCtx.lineTo(p1.x, p1.y);
+        overlayCtx.stroke();
+      } else {
+        const { x0, y0, x1, y1 } = rectBounds(state.shapePreview.start, state.shapePreview.end);
+        if (state.shapePreview.type === "rect") {
+          const p0 = toOverlayPoint(x0, y0, scaleX, scaleY);
+          const p1 = toOverlayPoint(x1 + 1, y1 + 1, scaleX, scaleY);
+          overlayCtx.strokeRect(p0.x, p0.y, Math.max(1, p1.x - p0.x), Math.max(1, p1.y - p0.y));
+        } else {
+          const cx = ((x0 + x1 + 1) / 2) * scaleX;
+          const cy = ((y0 + y1 + 1) / 2) * scaleY;
+          const rx = Math.max(0.5, ((x1 - x0 + 1) / 2) * scaleX);
+          const ry = Math.max(0.5, ((y1 - y0 + 1) / 2) * scaleY);
+          overlayCtx.beginPath();
+          overlayCtx.ellipse(cx, cy, rx, ry, 0, 0, Math.PI * 2);
+          overlayCtx.stroke();
+        }
+      }
+    }
+
+    if (state.tool === "polygon" && state.polygonPoints.length > 0) {
+      overlayCtx.beginPath();
+      const first = toOverlayPoint(state.polygonPoints[0].x, state.polygonPoints[0].y, scaleX, scaleY);
+      overlayCtx.moveTo(first.x, first.y);
+      for (let i = 1; i < state.polygonPoints.length; i++) {
+        const p = toOverlayPoint(state.polygonPoints[i].x, state.polygonPoints[i].y, scaleX, scaleY);
+        overlayCtx.lineTo(p.x, p.y);
+      }
+      overlayCtx.stroke();
+
+      if ((state.polygonMode === "placing" || state.polygonMode === "preview") && state.polygonCursor) {
+        const last = state.polygonPoints[state.polygonPoints.length - 1];
+        const lp = toOverlayPoint(last.x, last.y, scaleX, scaleY);
+        const cp = toOverlayPoint(state.polygonCursor.x, state.polygonCursor.y, scaleX, scaleY);
+        overlayCtx.beginPath();
+        overlayCtx.moveTo(lp.x, lp.y);
+        overlayCtx.lineTo(cp.x, cp.y);
+        overlayCtx.stroke();
+
+        if (state.polygonPoints.length >= 2) {
+          overlayCtx.setLineDash([4, 4]);
+          overlayCtx.beginPath();
+          overlayCtx.moveTo(cp.x, cp.y);
+          overlayCtx.lineTo(first.x, first.y);
+          overlayCtx.stroke();
+          overlayCtx.setLineDash([]);
+        }
+      }
+    }
+    if (state.polygonHold) {
+      const c = toOverlayPoint(state.polygonHold.x, state.polygonHold.y, scaleX, scaleY);
+      overlayCtx.beginPath();
+      overlayCtx.arc(c.x, c.y, 8, 0, Math.PI * 2);
+      overlayCtx.stroke();
+      overlayCtx.beginPath();
+      overlayCtx.arc(c.x, c.y, 10, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * (state.polygonHold.progress || 0));
+      overlayCtx.stroke();
+    }
+    overlayCtx.restore();
+  }
+
+  function linePoints(x0, y0, x1, y1) {
+    const pts = []; const dx = Math.abs(x1-x0), dy = Math.abs(y1-y0), sx = x0 < x1 ? 1 : -1, sy = y0 < y1 ? 1 : -1;
+    let err = dx - dy;
+    while (true) {
+      pts.push([x0, y0]); if (x0 === x1 && y0 === y1) break;
+      const e2 = 2 * err; if (e2 > -dy) { err -= dy; x0 += sx; } if (e2 < dx) { err += dx; y0 += sy; }
+    }
+    return pts;
+  }
+
+  function floodFill(startX, startY) {
+    const target = state.pixels[startY * W + startX];
+    const replacement = state.selectedColor;
+    if (!state.patternEnabled && target === replacement) return false;
+
+    const visited = new Uint8Array(W * H);
+    const stack = [[startX, startY]];
+    const region = [];
+
+    while (stack.length) {
+      const [x, y] = stack.pop();
+      const i = y * W + x;
+      if (visited[i]) continue;
+      visited[i] = 1;
+      if (state.pixels[i] !== target) continue;
+      region.push([x, y]);
+
+      if (x > 0) stack.push([x - 1, y]);
+      if (x < W - 1) stack.push([x + 1, y]);
+      if (y > 0) stack.push([x, y - 1]);
+      if (y < H - 1) stack.push([x, y + 1]);
+    }
+
+    let changed = false;
+    for (const [x, y] of region) {
+      if (state.patternEnabled && !patternShouldPaint(x, y)) continue;
+      changed = setPixel(x, y, replacement) || changed;
+    }
+    return changed;
+  }
+
+  function beginStroke() { state.strokeBefore = state.pixels.slice(); }
+  function endStroke() {
+    if (!state.strokeBefore) return;
+    let changed = false;
+    for (let i = 0; i < state.pixels.length; i++) if (state.strokeBefore[i] !== state.pixels[i]) { changed = true; break; }
+    if (changed) {
+      state.undoStack.push(state.strokeBefore);
+      if (state.undoStack.length > MAX_HISTORY) state.undoStack.shift();
+      state.redoStack.length = 0;
+    }
+    state.strokeBefore = null;
+    updateUndoRedoButtons();
+  }
+
+  function renderCanvas() {
+    const img = paintCtx.createImageData(W, H);
+    for (let i = 0; i < state.pixels.length; i++) {
+      const c = palette[state.pixels[i]], p = i * 4;
+      img.data[p] = parseInt(c.slice(1,3),16); img.data[p+1] = parseInt(c.slice(3,5),16); img.data[p+2] = parseInt(c.slice(5,7),16); img.data[p+3] = 255;
+    }
+    paintCtx.putImageData(img, 0, 0);
+    updateTileInfo();
+  }
+
+  function renderOverlay(freqMap = null) {
+    const { dpr, displayW, displayH, scaleX, scaleY } = resizeOverlayCanvas();
+    overlayCtx.setTransform(1, 0, 0, 1, 0, 0);
+    overlayCtx.clearRect(0, 0, overlayCanvas.width, overlayCanvas.height);
+    overlayCtx.scale(dpr, dpr);
+
+    if (state.showHeatmap) {
+      const freq = freqMap || computeTileData().freqMap;
+      for (const tile of freq.values()) {
+        const alpha = tile.count === 1 ? 0.10 : tile.count <= 3 ? 0.18 : tile.count <= 7 ? 0.26 : tile.count <= 15 ? 0.34 : 0.42;
+        overlayCtx.fillStyle = `rgba(255,64,64,${alpha})`;
+        for (const [tx, ty] of tile.positions) {
+          overlayCtx.fillRect(tx * TILE * scaleX, ty * TILE * scaleY, TILE * scaleX, TILE * scaleY);
+        }
+      }
+    }
+
+    if (state.showGrid) {
+      overlayCtx.strokeStyle = "rgba(255,0,0,0.18)";
+      overlayCtx.lineWidth = 1;
+      overlayCtx.beginPath();
+      for (let tx = 0; tx <= W; tx += TILE) {
+        const x = Math.round(tx * scaleX) + 0.5;
+        overlayCtx.moveTo(x, 0);
+        overlayCtx.lineTo(x, displayH);
+      }
+      for (let ty = 0; ty <= H; ty += TILE) {
+        const y = Math.round(ty * scaleY) + 0.5;
+        overlayCtx.moveTo(0, y);
+        overlayCtx.lineTo(displayW, y);
+      }
+      overlayCtx.stroke();
+    }
+
+    drawShapePreview(scaleX, scaleY);
+  }
+
+  function undo() { const prev = state.undoStack.pop(); if (!prev) return; state.redoStack.push(state.pixels.slice()); state.pixels = prev; renderCanvas(); updateUndoRedoButtons(); }
+  function redo() { const next = state.redoStack.pop(); if (!next) return; state.undoStack.push(state.pixels.slice()); state.pixels = next; renderCanvas(); updateUndoRedoButtons(); }
+  function updateUndoRedoButtons() { ui.undoBtn.disabled = state.undoStack.length === 0; ui.redoBtn.disabled = state.redoStack.length === 0; }
+
+  function encodePixelsBase64() { let s = ""; for (let i = 0; i < state.pixels.length; i++) s += String.fromCharCode(state.pixels[i]); return btoa(s); }
+  function decodePixelsBase64(encoded) { const raw = atob(encoded); const arr = new Uint8Array(raw.length); for (let i = 0; i < raw.length; i++) arr[i] = raw.charCodeAt(i); return arr; }
+
+  function downloadBlob(blob, name) { const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = name; a.click(); URL.revokeObjectURL(a.href); }
+  function saveJSON() {
+    const payload = { version:1, w:W, h:H, palette, bgIndex, pixels:encodePixelsBase64(), meta:{ tool:state.tool, brushSize:state.brushSize, selectedColor:state.selectedColor, patternEnabled:state.patternEnabled, patternType:state.patternType, patternInvert:state.patternInvert, lang:state.lang } };
+    downloadBlob(new Blob([JSON.stringify(payload)], { type:"application/json" }), `gbpaint-${Date.now()}.json`);
+  }
+  function loadJSONFromText(text) {
+    const data = JSON.parse(text);
+    if (data.w !== W || data.h !== H) throw new Error(t("app.errSize", data.w, data.h));
+    if (!data.pixels) throw new Error(t("app.errPixelsMissing"));
+    const arr = decodePixelsBase64(data.pixels);
+    if (arr.length !== W * H) throw new Error(t("app.errPixelsInvalid"));
+    state.pixels = arr; state.undoStack.length = 0; state.redoStack.length = 0; cancelPolygon(); clearGuideImage();
+    if (data.meta?.lang && STR[data.meta.lang]) { state.lang = data.meta.lang; ui.langSelect.value = state.lang; localStorage.setItem("gbpaint_lang", state.lang); updateI18n(); }
+    renderCanvas(); updateUndoRedoButtons();
+  }
+  function newCanvas() { if (!confirm(t("app.confirmNew"))) return; state.pixels = new Uint8Array(W * H).fill(bgIndex); state.undoStack.length = 0; state.redoStack.length = 0; cancelPolygon(); clearGuideImage(); renderCanvas(); updateUndoRedoButtons(); }
+
+  function exportPNGScale(scale) {
+    const out = document.createElement("canvas"); out.width = W * scale; out.height = H * scale;
+    const ctx = out.getContext("2d"); ctx.imageSmoothingEnabled = false; ctx.drawImage(paintCanvas, 0, 0, out.width, out.height);
+    out.toBlob(b => downloadBlob(b, `gbpaint-${W}x${H}-x${scale}.png`));
+  }
+  function exportPNGSquare(size) {
+    const out = document.createElement("canvas"); out.width = size; out.height = size;
+    const ctx = out.getContext("2d"); ctx.imageSmoothingEnabled = false; ctx.fillStyle = palette[bgIndex]; ctx.fillRect(0, 0, size, size);
+    const scale = Math.floor(Math.min(size / W, size / H)), dw = W * scale, dh = H * scale, ox = Math.floor((size - dw) / 2), oy = Math.floor((size - dh) / 2);
+    ctx.drawImage(paintCanvas, 0, 0, dw, dh, ox, oy, dw, dh);
+    out.toBlob(b => downloadBlob(b, `gbpaint-${size}square.png`));
+  }
+
+  function tileKey(tx, ty) { let s = ""; for (let y = 0; y < TILE; y++) for (let x = 0; x < TILE; x++) s += String.fromCharCode(state.pixels[(ty*TILE+y)*W + (tx*TILE+x)] + 48); return s; }
+  function computeTileData() {
+    const tilesX = W / TILE, tilesY = H / TILE, bgCode = String.fromCharCode(bgIndex + 48); let nonEmpty = 0; const freqMap = new Map();
+    for (let ty = 0; ty < tilesY; ty++) for (let tx = 0; tx < tilesX; tx++) {
+      const key = tileKey(tx, ty); let isEmpty = true; for (let i = 0; i < key.length; i++) if (key[i] !== bgCode) { isEmpty = false; break; }
+      if (!isEmpty) nonEmpty++; if (!state.includeEmptyTiles && isEmpty) continue;
+      if (!freqMap.has(key)) freqMap.set(key, { count: 0, positions: [] });
+      const rec = freqMap.get(key); rec.count++; rec.positions.push([tx, ty]);
+    }
+    return { nonEmpty, unique: freqMap.size, freqMap };
+  }
+  function renderUniqueTileList(freqMap) {
+    ui.uniqueTilesList.innerHTML = "";
+    let idx = 0;
+    for (const [key, rec] of freqMap.entries()) {
+      if (idx++ >= 120) break;
+      const item = document.createElement("div"); item.className = "tile-item";
+      const c = document.createElement("canvas"); c.width = TILE; c.height = TILE;
+      const cctx = c.getContext("2d"); const img = cctx.createImageData(TILE, TILE);
+      for (let i = 0; i < key.length; i++) {
+        const p = key.charCodeAt(i) - 48, col = palette[p], o = i * 4;
+        img.data[o] = parseInt(col.slice(1,3),16); img.data[o+1] = parseInt(col.slice(3,5),16); img.data[o+2] = parseInt(col.slice(5,7),16); img.data[o+3] = 255;
+      }
+      cctx.putImageData(img,0,0);
+      const txt = document.createElement("div"); txt.textContent = t("app.fillCount", rec.count);
+      item.append(c, txt); ui.uniqueTilesList.append(item);
+    }
+  }
+  function updateTileInfo() {
+    const data = computeTileData();
+    ui.tileStats.textContent = `${t("app.tilesUsed", data.nonEmpty)} | ${t("app.uniqueTiles", data.unique)}`;
+    ui.tileWarning.textContent = data.unique > 192 ? t("app.warnUnique", data.unique) : "";
+    renderUniqueTileList(data.freqMap); renderOverlay(data.freqMap);
+  }
+
+  function isTypingTarget(el) { return !!el && (el.isContentEditable || ["INPUT","TEXTAREA","SELECT"].includes(el.tagName)); }
+  function selectColor(idx) { state.selectedColor = idx; [...ui.paletteRow.children].forEach((c, i) => c.style.outline = i === idx ? "2px solid #fff" : "none"); }
+
+  function syncUI() {
+    document.getElementById("toolPen").classList.toggle("active", state.tool === "pen");
+    document.getElementById("toolEraser").classList.toggle("active", state.tool === "eraser");
+    document.getElementById("toolFill").classList.toggle("active", state.tool === "fill");
+    document.getElementById("toolLine").classList.toggle("active", state.tool === "line");
+    document.getElementById("toolRect").classList.toggle("active", state.tool === "rect");
+    document.getElementById("toolEllipse").classList.toggle("active", state.tool === "ellipse");
+    document.getElementById("toolPolygon").classList.toggle("active", state.tool === "polygon");
+    ui.brushButtons.forEach(b => b.classList.toggle("active", Number(b.dataset.size) === state.brushSize));
+    ui.patternEnabled.checked = state.patternEnabled; ui.patternType.value = state.patternType; ui.patternInvert.checked = state.patternInvert;
+    ui.gridToggle.checked = state.showGrid; ui.tileSnapToggle.checked = state.tileSnap; ui.heatmapToggle.checked = state.showHeatmap; ui.pencilOnlyToggle.checked = state.pencilOnly; ui.includeEmptyTiles.checked = state.includeEmptyTiles;
+    if (ui.shapeMode) ui.shapeMode.value = state.shapeMode;
+    ui.polygonConfirmBtn.hidden = !(state.tool === "polygon" && state.polygonMode !== "idle");
+    ui.guideVisibleToggle.checked = state.guideVisible;
+    ui.guideOpacity.value = String(Math.round(state.guideOpacity * 100));
+    ui.guideOffsetX.value = String(state.guideOffsetX);
+    ui.guideOffsetY.value = String(state.guideOffsetY);
+    ui.guideOffsetXValue.textContent = `X:${state.guideOffsetX >= 0 ? "+" : ""}${state.guideOffsetX}`;
+    ui.guideOffsetYValue.textContent = `Y:${state.guideOffsetY >= 0 ? "+" : ""}${state.guideOffsetY}`;
+    selectColor(state.selectedColor); updateUndoRedoButtons();
+  }
+
+  function setTool(nextTool) {
+    if (state.tool === "polygon" && nextTool !== "polygon") cancelPolygon();
+    if (nextTool !== "polygon") clearPolygonHold();
+    if (nextTool === "polygon") {
+      state.shapePreview = null;
+      state.polygonMode = state.polygonPoints.length ? "placing" : "idle";
+    } else {
+      state.shapePreview = null;
+    }
+    state.tool = nextTool;
+    syncUI();
+    renderOverlay();
+  }
+
+  function getPointerDistance(a, b) {
+    const dx = a.clientX - b.clientX;
+    const dy = a.clientY - b.clientY;
+    return Math.hypot(dx, dy);
+  }
+
+  function getPointerMid(a, b) {
+    return { x: (a.clientX + b.clientX) / 2, y: (a.clientY + b.clientY) / 2 };
+  }
+
+  function beginPinch() {
+    const pts = [...activePointers.values()];
+    if (pts.length < 2) return;
+    pinchMode = true;
+    state.isPinching = true;
+    state.pendingDraw = false;
+    pendingPointerId = null;
+    pendingStartPixel = null;
+    updateCanvasGestureBlock();
+    clearPolygonHold();
+
+    const a = pts[0], b = pts[1];
+    pinchPrevDist = Math.max(1, getPointerDistance(a, b));
+    const workspaceRect = document.querySelector(".workspace").getBoundingClientRect();
+    const c = getPointerMid(a, b);
+    pinchPrevCentroid = { x: c.x - workspaceRect.left, y: c.y - workspaceRect.top };
+
+    if (state.isDrawing) {
+      state.isDrawing = false;
+      lastPoint = null;
+      endStroke();
+    }
+    activeDown = null;
+  }
+
+  function updatePinch() {
+    const pts = [...activePointers.values()];
+    if (pts.length < 2) return;
+    const a = pts[0], b = pts[1];
+    const workspaceRect = document.querySelector(".workspace").getBoundingClientRect();
+    const centroidScreen = getPointerMid(a, b);
+    const centroidX = centroidScreen.x - workspaceRect.left;
+    const centroidY = centroidScreen.y - workspaceRect.top;
+    const dist = Math.max(1, getPointerDistance(a, b));
+
+    // 1) pan by centroid delta every frame.
+    const dx = centroidX - pinchPrevCentroid.x;
+    const dy = centroidY - pinchPrevCentroid.y;
+    state.viewOffsetX += dx;
+    state.viewOffsetY += dy;
+
+    // 2) zoom around current centroid using the post-pan offset as base.
+    const scaleFactor = dist / Math.max(1, pinchPrevDist);
+    const newScale = Math.max(MIN_VIEW_SCALE, Math.min(MAX_VIEW_SCALE, state.viewScale * scaleFactor));
+
+    const oldEffective = state.fitScale * state.viewScale;
+    const anchorCanvasX = (centroidX - state.viewOffsetX) / oldEffective;
+    const anchorCanvasY = (centroidY - state.viewOffsetY) / oldEffective;
+
+    state.viewScale = newScale;
+    const newEffective = state.fitScale * state.viewScale;
+    state.viewOffsetX = centroidX - anchorCanvasX * newEffective;
+    state.viewOffsetY = centroidY - anchorCanvasY * newEffective;
+
+    state.isPanning = Math.abs(dx) > 0.1 || Math.abs(dy) > 0.1;
+    pinchPrevCentroid = { x: centroidX, y: centroidY };
+    pinchPrevDist = dist;
+
+    applyViewTransform(true);
+    updateScaleBadge();
+    renderOverlay();
+  }
+
+  function tryRegisterTap(ev) {
+    if (state.tool === "fill" || state.tool === "polygon") return;
+    if (!activeDown || activeDown.moved || activeDown.pointerType === "mouse" || state.isPinching) return;
+    const dt = performance.now() - activeDown.time;
+    if (dt > TAP_MAX_MS) return;
+
+    const closeInTime = performance.now() - tapInfo.time <= 350;
+    const closeInSpace = Math.hypot(ev.clientX - tapInfo.x, ev.clientY - tapInfo.y) <= TAP_CLUSTER_RADIUS;
+    tapInfo.count = (closeInTime && closeInSpace) ? tapInfo.count + 1 : 1;
+    tapInfo.time = performance.now();
+    tapInfo.x = ev.clientX; tapInfo.y = ev.clientY;
+
+    if (tapInfo.count === 2) {
+      undo();
+    } else if (tapInfo.count >= 3) {
+      redo();
+      tapInfo.count = 0;
+    }
+  }
+
+
+  function canDrawWithPointerType(pointerType) {
+    if (!state.pencilOnly) return true;
+    return pointerType === "pen" || pointerType === "mouse";
+  }
+
+  function updateCanvasGestureBlock() {
+    const shouldBlock = state.isDrawing || state.pendingDraw || state.isPinching;
+    if (shouldBlock && !canvasGestureActive) {
+      canvasGestureActive = true;
+      document.addEventListener("touchmove", preventScroll, { passive: false });
+    } else if (!shouldBlock && canvasGestureActive) {
+      canvasGestureActive = false;
+      document.removeEventListener("touchmove", preventScroll);
+    }
+  }
+
+  const preventScroll = (ev) => {
+    if (canvasGestureActive) ev.preventDefault();
+  };
+
+
+  function finishDrawing(ev) {
+    if (ev) ev.preventDefault();
+    if (ev && paintCanvas.hasPointerCapture && paintCanvas.hasPointerCapture(ev.pointerId)) {
+      try { paintCanvas.releasePointerCapture(ev.pointerId); } catch (_) {}
+    }
+    if (!state.isDrawing) { updateCanvasGestureBlock(); return; }
+    state.isDrawing = false;
+    lastPoint = null;
+    endStroke();
+    updateCanvasGestureBlock();
+  }
+
+  let lastPoint = null;
+  function setupUI() {
+    ui.langSelect.value = STR[state.lang] ? state.lang : "ja";
+    if (!STR[state.lang]) state.lang = "ja";
+
+    PATTERNS.forEach(p => { const opt = document.createElement("option"); opt.value = p.key; opt.textContent = p.label; ui.patternType.append(opt); });
+    palette.forEach((hex, i) => {
+      const b = document.createElement("button");
+      b.className = "swatch";
+      b.style.background = hex;
+      b.title = `${i+1}`;
+      b.addEventListener("click", () => { selectColor(i); syncUI(); });
+      ui.paletteRow.append(b);
+    });
+
+    paintCanvas.addEventListener("pointerdown", (ev) => {
+      ev.preventDefault();
+      if (ev.pointerType === "mouse" && ev.button === 1) {
+        startMousePan(ev);
+        return;
+      }
+      if (ev.pointerType === "mouse" && ev.button !== 0) return;
+
+      activePointers.set(ev.pointerId, { clientX: ev.clientX, clientY: ev.clientY, pointerType: ev.pointerType });
+      paintCanvas.setPointerCapture(ev.pointerId);
+      activeDown = { x: ev.clientX, y: ev.clientY, time: performance.now(), moved: false, pointerType: ev.pointerType };
+      lastCanvasPointerType = ev.pointerType;
+
+      if (activePointers.size >= 2) {
+        beginPinch();
+        return;
+      }
+
+      if (!canDrawWithPointerType(ev.pointerType)) {
+        state.pendingDraw = false;
+        pendingPointerId = null;
+        pendingStartPixel = null;
+        updateCanvasGestureBlock();
+        return;
+      }
+
+      const pt = getPixelFromPointerEvent(ev);
+      if (!pt) {
+        state.pendingDraw = false;
+        pendingPointerId = null;
+        pendingStartPixel = null;
+        return;
+      }
+
+      if (state.tool === "fill") {
+        if (!state.isPinching && !pinchMode) {
+          beginStroke();
+          if (floodFill(pt.x, pt.y)) renderCanvas();
+          endStroke();
+        }
+        state.pendingDraw = false;
+        pendingPointerId = null;
+        pendingStartPixel = null;
+        updateCanvasGestureBlock();
+        return;
+      }
+
+      if (state.tool === "polygon") {
+        state.polygonCursor = pt;
+        startPolygonHold(ev, pt);
+        renderOverlay();
+        return;
+      }
+
+      activeStrokePointerId = ev.pointerId;
+      pendingHasDragged = false;
+      state.pendingDraw = true;
+      pendingPointerId = ev.pointerId;
+      pendingStartPixel = pt;
+      if (["line", "rect", "ellipse"].includes(state.tool)) {
+        state.shapePreview = { type: state.tool, start: pt, end: pt };
+        renderOverlay();
+      }
+      updateCanvasGestureBlock();
+    }, { passive: false });
+
+    paintCanvas.addEventListener("pointermove", (ev) => {
+      ev.preventDefault();
+      if (isMousePanning) {
+        moveMousePan(ev);
+        return;
+      }
+
+      if (activePointers.has(ev.pointerId)) {
+        activePointers.set(ev.pointerId, { clientX: ev.clientX, clientY: ev.clientY, pointerType: ev.pointerType });
+      }
+
+      if (pinchMode || activePointers.size >= 2) {
+        if (!pinchMode && activePointers.size >= 2) beginPinch();
+        if (pinchMode) updatePinch();
+        return;
+      }
+
+      if (activeDown && Math.hypot(ev.clientX - activeDown.x, ev.clientY - activeDown.y) > TAP_MAX_MOVE) {
+        activeDown.moved = true;
+      }
+      if (polygonHoldPointerId === ev.pointerId && activeDown && Math.hypot(ev.clientX - activeDown.x, ev.clientY - activeDown.y) > POLY_HOLD_MOVE) {
+        clearPolygonHold();
+      }
+
+      if (state.tool === "polygon") {
+        state.polygonCursor = getPixelFromPointerEvent(ev);
+        if (state.polygonMode !== "idle") {
+          state.polygonMode = "preview";
+          renderOverlay();
+        }
+        return;
+      }
+
+      if (state.pendingDraw && ev.pointerId === pendingPointerId) {
+        if (["line", "rect", "ellipse"].includes(state.tool) && state.shapePreview) {
+          const pt = getPixelFromPointerEvent(ev);
+          if (!pt) return;
+          let endPt = pt;
+          if (ev.shiftKey && state.tool === "line") {
+            endPt = constrainLineTo45(state.shapePreview.start, pt);
+          }
+          if (ev.shiftKey && (state.tool === "rect" || state.tool === "ellipse")) {
+            const dx = pt.x - state.shapePreview.start.x;
+            const dy = pt.y - state.shapePreview.start.y;
+            const d = Math.max(Math.abs(dx), Math.abs(dy));
+            endPt = { x: state.shapePreview.start.x + Math.sign(dx || 1) * d, y: state.shapePreview.start.y + Math.sign(dy || 1) * d };
+          }
+          state.shapePreview.end = {
+            x: Math.max(0, Math.min(W - 1, endPt.x)),
+            y: Math.max(0, Math.min(H - 1, endPt.y))
+          };
+          renderOverlay();
+          return;
+        }
+
+        const dragDistanceSq = (ev.clientX - activeDown.x) * (ev.clientX - activeDown.x) + (ev.clientY - activeDown.y) * (ev.clientY - activeDown.y);
+        if (dragDistanceSq > DRAW_TAP_SLOP_PX * DRAW_TAP_SLOP_PX) pendingHasDragged = true;
+        if (pendingHasDragged && state.tool !== "fill") {
+          state.pendingDraw = false;
+          state.isDrawing = true;
+          beginStroke();
+          drawBrush(pendingStartPixel.x, pendingStartPixel.y);
+          const pt = getPixelFromPointerEvent(ev);
+          if (!pt) return;
+          const pts = linePoints(pendingStartPixel.x, pendingStartPixel.y, pt.x, pt.y);
+          let changed = false;
+          for (const [x, y] of pts) changed = drawBrush(x, y) || changed;
+          if (changed) renderCanvas();
+          lastPoint = pt;
+          updateCanvasGestureBlock();
+        }
+      }
+
+      if (!state.isDrawing || ev.pointerId !== activeStrokePointerId) return;
+      const pt = getPixelFromPointerEvent(ev);
+      if (!pt) return;
+      const points = linePoints(lastPoint.x, lastPoint.y, pt.x, pt.y);
+      let changed = false;
+      for (const [x, y] of points) changed = drawBrush(x, y) || changed;
+      if (changed) renderCanvas();
+      lastPoint = pt;
+    }, { passive: false });
+
+    paintCanvas.addEventListener("pointerup", (ev) => {
+      ev.preventDefault();
+      if (isMousePanning && ev.pointerType === "mouse") {
+        endMousePan(ev);
+      }
+
+      const wasPinching = pinchMode || state.isPinching;
+      activePointers.delete(ev.pointerId);
+      if (pinchMode && activePointers.size < 2) {
+        pinchMode = false;
+        state.isPinching = false;
+        state.isPanning = false;
+        applyViewTransform(false);
+        renderOverlay();
+      }
+
+      if (state.tool === "polygon" && !wasPinching && !state.isPinching && ev.target === paintCanvas && activeDown && !activeDown.moved) {
+        if (!polygonHoldConfirmed) addPolygonPoint(getPixelFromPointerEvent(ev));
+        polygonHoldConfirmed = false;
+      }
+
+      if (ev.pointerId === activeStrokePointerId && state.isDrawing) {
+        finishDrawing(ev);
+      } else if (state.pendingDraw && ev.pointerId === pendingPointerId) {
+        state.pendingDraw = false;
+        if (["line", "rect", "ellipse"].includes(state.tool) && state.shapePreview) {
+          commitShape(state.shapePreview);
+          state.shapePreview = null;
+          renderOverlay();
+        } else if ((state.tool === "pen" || state.tool === "eraser") && !pendingHasDragged && !wasPinching && !state.isPinching && canDrawWithPointerType(ev.pointerType)) {
+          beginStroke();
+          const tapPt = pendingStartPixel || getPixelFromPointerEvent(ev);
+          if (tapPt) {
+            const changed = drawBrush(tapPt.x, tapPt.y);
+            if (changed) renderCanvas();
+          }
+          endStroke();
+        }
+      }
+
+      if (!isMousePanning) tryRegisterTap(ev);
+      if (ev.pointerId === polygonHoldPointerId) clearPolygonHold();
+
+      if (paintCanvas.hasPointerCapture && paintCanvas.hasPointerCapture(ev.pointerId)) {
+        try { paintCanvas.releasePointerCapture(ev.pointerId); } catch (_) {}
+      }
+
+      if (ev.pointerId === activeStrokePointerId) activeStrokePointerId = null;
+      if (ev.pointerId === pendingPointerId) {
+        pendingPointerId = null;
+        pendingStartPixel = null;
+        pendingHasDragged = false;
+      }
+      activeDown = null;
+      updateCanvasGestureBlock();
+    }, { passive: false });
+
+    paintCanvas.addEventListener("pointercancel", (ev) => {
+      ev.preventDefault();
+      if (isMousePanning && ev.pointerType === "mouse") {
+        endMousePan(ev);
+      }
+      activePointers.delete(ev.pointerId);
+      if (pinchMode && activePointers.size < 2) {
+        pinchMode = false;
+        state.isPinching = false;
+        state.isPanning = false;
+        applyViewTransform(false);
+        renderOverlay();
+      }
+      if (ev.pointerId === activeStrokePointerId) {
+        finishDrawing(ev);
+        activeStrokePointerId = null;
+      }
+      if (ev.pointerId === polygonHoldPointerId) clearPolygonHold();
+      if (ev.pointerId === pendingPointerId) {
+        state.pendingDraw = false;
+        pendingPointerId = null;
+        pendingStartPixel = null;
+        pendingHasDragged = false;
+        state.shapePreview = null;
+        renderOverlay();
+      }
+      activeDown = null;
+      updateCanvasGestureBlock();
+    }, { passive: false });
+
+    paintCanvas.addEventListener("gesturestart", (ev) => ev.preventDefault(), { passive: false });
+    paintCanvas.addEventListener("gesturechange", (ev) => ev.preventDefault(), { passive: false });
+    paintCanvas.addEventListener("dblclick", (ev) => {
+      ev.preventDefault();
+      ev.stopPropagation();
+      if (state.tool === "polygon" && ev.target === paintCanvas && lastCanvasPointerType === "mouse") tryCommitPolygon();
+    }, { passive: false });
+
+    document.getElementById("toolPen").addEventListener("click", () => { setTool("pen"); });
+    document.getElementById("toolEraser").addEventListener("click", () => { setTool("eraser"); });
+    document.getElementById("toolFill").addEventListener("click", () => { setTool("fill"); });
+    document.getElementById("toolLine").addEventListener("click", () => { setTool("line"); });
+    document.getElementById("toolRect").addEventListener("click", () => { setTool("rect"); });
+    document.getElementById("toolEllipse").addEventListener("click", () => { setTool("ellipse"); });
+    document.getElementById("toolPolygon").addEventListener("click", () => { setTool("polygon"); });
+    ui.brushButtons.forEach(b => b.addEventListener("click", () => { state.brushSize = Number(b.dataset.size); syncUI(); }));
+
+    ui.patternEnabled.addEventListener("change", () => { state.patternEnabled = ui.patternEnabled.checked; syncUI(); });
+    ui.patternType.addEventListener("change", () => { state.patternType = ui.patternType.value; syncUI(); });
+    ui.patternInvert.addEventListener("change", () => { state.patternInvert = ui.patternInvert.checked; syncUI(); });
+    ui.gridToggle.addEventListener("change", () => { state.showGrid = ui.gridToggle.checked; renderOverlay(); });
+    ui.tileSnapToggle.addEventListener("change", () => { state.tileSnap = ui.tileSnapToggle.checked; syncUI(); });
+    ui.heatmapToggle.addEventListener("change", () => { state.showHeatmap = ui.heatmapToggle.checked; renderOverlay(); });
+    ui.pencilOnlyToggle.addEventListener("change", () => { state.pencilOnly = ui.pencilOnlyToggle.checked; localStorage.setItem("gbpaint_pencil_only", state.pencilOnly ? "1" : "0"); syncUI(); });
+    ui.resetViewBtn.addEventListener("click", resetViewTransform);
+    ui.includeEmptyTiles.addEventListener("change", () => { state.includeEmptyTiles = ui.includeEmptyTiles.checked; updateTileInfo(); });
+    ui.shapeMode.addEventListener("change", () => { state.shapeMode = ui.shapeMode.value; renderOverlay(); });
+    ui.polygonCancelBtn.addEventListener("click", () => { cancelPolygon(); });
+
+    ui.guideLoadBtn.addEventListener("click", () => ui.guideFileInput.click());
+    ui.guideVisibleToggle.addEventListener("change", () => {
+      state.guideVisible = ui.guideVisibleToggle.checked;
+      renderGuide();
+    });
+    ui.guideOpacity.addEventListener("input", () => {
+      state.guideOpacity = Math.max(0, Math.min(1, Number(ui.guideOpacity.value) / 100));
+      renderGuide();
+    });
+    ui.guideOffsetX.addEventListener("input", () => {
+      state.guideOffsetX = Math.max(-80, Math.min(80, Number(ui.guideOffsetX.value) || 0));
+      syncUI();
+      renderGuide();
+    });
+    ui.guideOffsetY.addEventListener("input", () => {
+      state.guideOffsetY = Math.max(-80, Math.min(80, Number(ui.guideOffsetY.value) || 0));
+      syncUI();
+      renderGuide();
+    });
+    ui.guideCenterBtn.addEventListener("click", () => {
+      state.guideOffsetX = 0;
+      state.guideOffsetY = 0;
+      syncUI();
+      renderGuide();
+    });
+    ui.guideClearBtn.addEventListener("click", clearGuideImage);
+    ui.guideFileInput.addEventListener("change", async (ev) => {
+      const file = ev.target.files[0];
+      if (!file) return;
+      try {
+        await loadGuideImage(file);
+      } catch (err) {
+        console.warn("[GBPaint] guide image load failed", err);
+      }
+      syncUI();
+      ev.target.value = "";
+    });
+
+    document.getElementById("newBtn").addEventListener("click", newCanvas);
+    document.getElementById("saveJsonBtn").addEventListener("click", saveJSON);
+    document.getElementById("loadJsonBtn").addEventListener("click", () => ui.jsonFileInput.click());
+    ui.jsonFileInput.addEventListener("change", async (ev) => {
+      const file = ev.target.files[0]; if (!file) return;
+      try { loadJSONFromText(await file.text()); }
+      catch (err) { alert(t("app.errLoad", err.message)); }
+      finally { ev.target.value = ""; }
+    });
+
+    document.querySelectorAll("#pngButtons button").forEach(b => b.addEventListener("click", () => {
+      if (b.dataset.kind === "scale") exportPNGScale(Number(b.dataset.scale));
+      else exportPNGSquare(Number(b.dataset.size));
+    }));
+
+    const bindHeaderAction = (btn, action) => {
+      btn.addEventListener("pointerdown", (ev) => ev.preventDefault(), { passive: false });
+      btn.addEventListener("touchend", (ev) => ev.preventDefault(), { passive: false });
+      btn.addEventListener("pointerup", (ev) => { ev.preventDefault(); action(); }, { passive: false });
+    };
+    bindHeaderAction(ui.undoBtn, undo);
+    bindHeaderAction(ui.redoBtn, redo);
+    bindHeaderAction(ui.polygonConfirmBtn, () => { if (state.tool === "polygon") tryCommitPolygon(); });
+
+    ui.mobileMenuBtn.addEventListener("click", () => setMobileUIOpen(!document.body.classList.contains("ui-open")));
+    ui.sidebarBackdrop.addEventListener("click", () => setMobileUIOpen(false));
+    ui.mobileUndoBtn.addEventListener("click", undo);
+    ui.mobileRedoBtn.addEventListener("click", redo);
+    ui.mobileLangBtn.addEventListener("click", () => {
+      state.lang = state.lang === "ja" ? "en" : "ja";
+      ui.langSelect.value = state.lang;
+      localStorage.setItem("gbpaint_lang", state.lang);
+      updateI18n();
+      updateTileInfo();
+    });
+
+    ui.sections.forEach(sec => {
+      sec.addEventListener("toggle", saveSectionsState);
+    });
+    ui.openAllSectionsBtn.addEventListener("click", () => setAllSectionsOpen(true));
+    ui.closeAllSectionsBtn.addEventListener("click", () => setAllSectionsOpen(false));
+
+    ui.langSelect.addEventListener("change", () => {
+      state.lang = ui.langSelect.value;
+      localStorage.setItem("gbpaint_lang", state.lang);
+      updateI18n();
+      updateTileInfo();
+    });
+
+    window.addEventListener("keydown", (ev) => {
+      if (isTypingTarget(document.activeElement)) return;
+      const mod = ev.ctrlKey || ev.metaKey;
+      const key = ev.key.toLowerCase();
+
+      if (mod && key === "z") { ev.preventDefault(); if (ev.shiftKey) redo(); else undo(); return; }
+      if (ev.ctrlKey && key === "y") { ev.preventDefault(); redo(); return; }
+      if (mod && key === "s") { ev.preventDefault(); saveJSON(); return; }
+      if (mod && key === "o") { ev.preventDefault(); ui.jsonFileInput.click(); return; }
+      if (mod && key === "n") { ev.preventDefault(); newCanvas(); return; }
+      if (mod && key === "e") { ev.preventDefault(); exportPNGScale(1); return; }
+
+      if (key >= "1" && key <= "4") { selectColor(Number(key) - 1); syncUI(); return; }
+      if (key === "b") { setTool("pen"); return; }
+      if (key === "e") { setTool("eraser"); return; }
+      if (key === "g" && !ev.shiftKey) { setTool("fill"); return; }
+      if (key === "l") { setTool("line"); return; }
+      if (key === "r") { setTool("rect"); return; }
+      if (key === "o") { setTool("ellipse"); return; }
+      if (key === "k") { setTool("polygon"); return; }
+      if (key === "enter" && state.tool === "polygon") {
+        tryCommitPolygon();
+        return;
+      }
+      if (key === "escape" && state.tool === "polygon") {
+        cancelPolygon();
+        return;
+      }
+      if (key === "p") { state.patternEnabled = !state.patternEnabled; syncUI(); return; }
+      if (key === "t") { state.tileSnap = !state.tileSnap; syncUI(); return; }
+      if (key === "g" && ev.shiftKey) { state.showGrid = !state.showGrid; syncUI(); renderOverlay(); return; }
+      if (key === "0") { resetViewTransform(); return; }
+      if (key === "[") { state.brushSize = [1,2,4][Math.max(0, [1,2,4].indexOf(state.brushSize)-1)]; syncUI(); return; }
+      if (key === "]") { state.brushSize = [1,2,4][Math.min(2, [1,2,4].indexOf(state.brushSize)+1)]; syncUI(); return; }
+    });
+
+    ui.stage.addEventListener("pointerdown", () => { if (isMobileLayout() && document.body.classList.contains("ui-open")) setMobileUIOpen(false); });
+    paintCanvas.addEventListener("wheel", handleWheel, { passive: false });
+    window.addEventListener("resize", updateScale);
+
+    restoreSectionsState();
+    updateI18n();
+    syncUI();
+    guideCanvas.style.display = "none";
+    renderGuide();
+    updateScale();
+    renderCanvas();
+  }
+
+  setupUI();
+})();
+</script>
+</body>
+</html>
