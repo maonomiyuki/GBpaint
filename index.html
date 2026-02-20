@@ -69,12 +69,9 @@
         <select id="shapeMode">
           <option value="stroke">Stroke</option>
           <option value="fill">Fill</option>
-          <option value="both">Stroke+Fill</option>
         </select>
       </label>
-      <label>Fill
-        <select id="shapeFillColor"></select>
-      </label>
+      <button id="polygonCancelBtn">Polygon Cancel</button>
     </div>
 
     <h2 data-i18n="brushSize">ブラシサイズ</h2>
@@ -100,7 +97,7 @@
       <label><input type="checkbox" id="tileSnapToggle" /> <span id="tileSnapLabel"></span></label>
       <label><input type="checkbox" id="heatmapToggle" /> <span data-i18n="heatmap">ユニークタイル ヒートマップ</span></label>
       <label><input type="checkbox" id="pencilOnlyToggle" /> <span data-i18n="pencilOnly">Apple Pencilのみ描画</span></label>
-      <button id="resetViewBtn" data-i18n="resetView">表示をリセット (R)</button>
+      <button id="resetViewBtn" data-i18n="resetView">表示をリセット (0)</button>
     </div>
 
     <h2 data-i18n="tileStats">タイル統計</h2>
@@ -206,14 +203,14 @@
 
   const state = {
     pixels: new Uint8Array(W * H).fill(bgIndex), tool:"pen", brushSize:1, selectedColor:0,
-    shapeMode:"stroke", shapeFillColor:bgIndex,
+    shapeMode:"stroke",
     showGrid:true, tileSnap:false, patternEnabled:false, patternType:"d4_50", patternInvert:false,
     includeEmptyTiles:false, showHeatmap:false, lang: localStorage.getItem("gbpaint_lang") || "ja",
     pencilOnly: localStorage.getItem("gbpaint_pencil_only") === "1",
     isPinching:false, isPanning:false, isDrawing:false, pendingDraw:false,
     strokeBefore:null, undoStack:[], redoStack:[],
     fitScale: 1, viewScale: 1, viewOffsetX: 0, viewOffsetY: 0,
-    shapePreview:null, polygonPoints:[]
+    shapePreview:null, polygonPoints:[], polygonMode:"idle", polygonCursor:null
   };
 
   const paintCanvas = document.getElementById("paintCanvas");
@@ -243,7 +240,7 @@
   };
 
   ui.shapeMode = document.getElementById("shapeMode");
-  ui.shapeFillColor = document.getElementById("shapeFillColor");
+  ui.polygonCancelBtn = document.getElementById("polygonCancelBtn");
 
   const activePointers = new Map();
   let pinchMode = false;
@@ -257,7 +254,10 @@
   const TAP_MAX_MS = 320;
   const TAP_MAX_MOVE = 12;
   const TAP_CLUSTER_RADIUS = 30;
+  const POLY_DOUBLE_MS = 360;
+  const POLY_DOUBLE_DIST = 20;
   let tapInfo = { count: 0, time: 0, x: 0, y: 0 };
+  let polygonTapInfo = { time: 0, x: 0, y: 0 };
   let activeStrokePointerId = null;
   let activeDown = null;
   let isMousePanning = false;
@@ -483,7 +483,11 @@
     return state.tool === "eraser" ? bgIndex : state.selectedColor;
   }
 
-  function rasterLine(target, x0, y0, x1, y1, color, usePattern = true) {
+  function shapeFillColor() {
+    return state.selectedColor;
+  }
+
+  function rasterLine(target, x0, y0, x1, y1, color, usePattern = false) {
     let changed = false;
     for (const [x, y] of linePoints(x0, y0, x1, y1)) {
       changed = drawSquareBrushTo(target, x, y, state.brushSize, color, usePattern) || changed;
@@ -500,14 +504,14 @@
   function shapeRasterToBuffer(target, shape) {
     const mode = state.shapeMode;
     const strokeColor = shapeStrokeColor();
-    const fillColor = state.shapeFillColor;
+    const fillColor = shapeFillColor();
     let changed = false;
     if (shape.type === "line") {
-      return rasterLine(target, shape.start.x, shape.start.y, shape.end.x, shape.end.y, strokeColor, true);
+      return rasterLine(target, shape.start.x, shape.start.y, shape.end.x, shape.end.y, strokeColor, false);
     }
     if (shape.type === "rect") {
       const { x0, y0, x1, y1 } = rectBounds(shape.start, shape.end);
-      if (mode === "fill" || mode === "both") {
+      if (mode === "fill") {
         for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) {
           if (!patternShouldPaint(x, y)) continue;
           const i = y * W + x;
@@ -515,12 +519,11 @@
           target[i] = fillColor;
           changed = true;
         }
-      }
-      if (mode === "stroke" || mode === "both") {
-        changed = rasterLine(target, x0, y0, x1, y0, strokeColor, true) || changed;
-        changed = rasterLine(target, x1, y0, x1, y1, strokeColor, true) || changed;
-        changed = rasterLine(target, x1, y1, x0, y1, strokeColor, true) || changed;
-        changed = rasterLine(target, x0, y1, x0, y0, strokeColor, true) || changed;
+      } else {
+        changed = rasterLine(target, x0, y0, x1, y0, strokeColor, false) || changed;
+        changed = rasterLine(target, x1, y0, x1, y1, strokeColor, false) || changed;
+        changed = rasterLine(target, x1, y1, x0, y1, strokeColor, false) || changed;
+        changed = rasterLine(target, x0, y1, x0, y0, strokeColor, false) || changed;
       }
       return changed;
     }
@@ -528,24 +531,23 @@
       const { x0, y0, x1, y1 } = rectBounds(shape.start, shape.end);
       const cx = (x0 + x1) / 2, cy = (y0 + y1) / 2;
       const rx = Math.max(0.5, (x1 - x0) / 2), ry = Math.max(0.5, (y1 - y0) / 2);
-      for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) {
-        const nx = (x - cx) / rx, ny = (y - cy) / ry;
-        const d = nx * nx + ny * ny;
-        if ((mode === "fill" || mode === "both") && d <= 1) {
-          if (patternShouldPaint(x, y)) {
+      if (mode === "fill") {
+        for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) {
+          const nx = (x - cx) / rx, ny = (y - cy) / ry;
+          const d = nx * nx + ny * ny;
+          if (d <= 1 && patternShouldPaint(x, y)) {
             const i = y * W + x;
             if (target[i] !== fillColor) { target[i] = fillColor; changed = true; }
           }
         }
-      }
-      if (mode === "stroke" || mode === "both") {
+      } else {
         const step = Math.max(16, Math.round(Math.PI * (rx + ry) * 2));
         let prev = null;
         for (let i = 0; i <= step; i++) {
           const th = (i / step) * Math.PI * 2;
           const px = Math.round(cx + Math.cos(th) * rx);
           const py = Math.round(cy + Math.sin(th) * ry);
-          if (prev) changed = rasterLine(target, prev.x, prev.y, px, py, strokeColor, true) || changed;
+          if (prev) changed = rasterLine(target, prev.x, prev.y, px, py, strokeColor, false) || changed;
           prev = { x: px, y: py };
         }
       }
@@ -553,8 +555,8 @@
     }
     if (shape.type === "polygon") {
       const pts = shape.points || [];
-      if (pts.length < 2) return false;
-      if (mode === "fill" || mode === "both") {
+      if (pts.length < 3) return false;
+      if (mode === "fill") {
         let minY = H - 1, maxY = 0;
         for (const p of pts) { minY = Math.min(minY, p.y); maxY = Math.max(maxY, p.y); }
         minY = Math.max(0, minY); maxY = Math.min(H - 1, maxY);
@@ -578,11 +580,10 @@
             }
           }
         }
-      }
-      if (mode === "stroke" || mode === "both") {
+      } else {
         for (let i = 0; i < pts.length; i++) {
           const a = pts[i], b = pts[(i + 1) % pts.length];
-          changed = rasterLine(target, a.x, a.y, b.x, b.y, strokeColor, true) || changed;
+          changed = rasterLine(target, a.x, a.y, b.x, b.y, strokeColor, false) || changed;
         }
       }
       return changed;
@@ -596,6 +597,113 @@
     if (changed) renderCanvas();
     endStroke();
     return changed;
+  }
+
+  function cancelPolygon() {
+    state.polygonPoints = [];
+    state.polygonMode = "idle";
+    state.polygonCursor = null;
+    state.shapePreview = null;
+    renderOverlay();
+  }
+
+  function tryCommitPolygon() {
+    if (state.polygonPoints.length < 3) {
+      alert("Polygon requires at least 3 points");
+      return false;
+    }
+    const ok = commitShape({ type: "polygon", points: state.polygonPoints.slice() });
+    state.polygonPoints = [];
+    state.polygonMode = "idle";
+    state.polygonCursor = null;
+    state.shapePreview = null;
+    renderOverlay();
+    return ok;
+  }
+
+  function addPolygonPoint(pt) {
+    if (state.polygonPoints.length) {
+      const prev = state.polygonPoints[state.polygonPoints.length - 1];
+      if (prev.x === pt.x && prev.y === pt.y) return;
+    }
+    state.polygonPoints.push(pt);
+    state.polygonMode = "placing";
+    state.polygonCursor = pt;
+    renderOverlay();
+  }
+
+  function maybeConfirmPolygonByDoubleTap(ev) {
+    if (state.tool !== "polygon" || ev.target !== paintCanvas || state.isPinching || pinchMode) return;
+    if (!activeDown || activeDown.moved) return;
+    const now = performance.now();
+    const dt = now - polygonTapInfo.time;
+    const dist = Math.hypot(ev.clientX - polygonTapInfo.x, ev.clientY - polygonTapInfo.y);
+    polygonTapInfo = { time: now, x: ev.clientX, y: ev.clientY };
+    if (dt <= POLY_DOUBLE_MS && dist <= POLY_DOUBLE_DIST) {
+      tryCommitPolygon();
+      polygonTapInfo.time = 0;
+    }
+  }
+
+  function toOverlayPoint(x, y, scaleX, scaleY) {
+    return { x: Math.round((x + 0.5) * scaleX) + 0.5, y: Math.round((y + 0.5) * scaleY) + 0.5 };
+  }
+
+  function drawShapePreview(scaleX, scaleY) {
+    if (state.isPinching) return;
+    overlayCtx.save();
+    overlayCtx.strokeStyle = "rgba(0,160,255,0.95)";
+    overlayCtx.lineWidth = 1;
+    overlayCtx.lineCap = "butt";
+    overlayCtx.lineJoin = "miter";
+
+    if (state.shapePreview && (state.shapePreview.type === "rect" || state.shapePreview.type === "ellipse")) {
+      const { x0, y0, x1, y1 } = rectBounds(state.shapePreview.start, state.shapePreview.end);
+      if (state.shapePreview.type === "rect") {
+        const p0 = toOverlayPoint(x0, y0, scaleX, scaleY);
+        const p1 = toOverlayPoint(x1 + 1, y1 + 1, scaleX, scaleY);
+        overlayCtx.strokeRect(p0.x, p0.y, Math.max(1, p1.x - p0.x), Math.max(1, p1.y - p0.y));
+      } else {
+        const cx = ((x0 + x1 + 1) / 2) * scaleX;
+        const cy = ((y0 + y1 + 1) / 2) * scaleY;
+        const rx = Math.max(0.5, ((x1 - x0 + 1) / 2) * scaleX);
+        const ry = Math.max(0.5, ((y1 - y0 + 1) / 2) * scaleY);
+        overlayCtx.beginPath();
+        overlayCtx.ellipse(cx, cy, rx, ry, 0, 0, Math.PI * 2);
+        overlayCtx.stroke();
+      }
+    }
+
+    if (state.tool === "polygon" && state.polygonPoints.length > 0) {
+      overlayCtx.beginPath();
+      const first = toOverlayPoint(state.polygonPoints[0].x, state.polygonPoints[0].y, scaleX, scaleY);
+      overlayCtx.moveTo(first.x, first.y);
+      for (let i = 1; i < state.polygonPoints.length; i++) {
+        const p = toOverlayPoint(state.polygonPoints[i].x, state.polygonPoints[i].y, scaleX, scaleY);
+        overlayCtx.lineTo(p.x, p.y);
+      }
+      overlayCtx.stroke();
+
+      if ((state.polygonMode === "placing" || state.polygonMode === "preview") && state.polygonCursor) {
+        const last = state.polygonPoints[state.polygonPoints.length - 1];
+        const lp = toOverlayPoint(last.x, last.y, scaleX, scaleY);
+        const cp = toOverlayPoint(state.polygonCursor.x, state.polygonCursor.y, scaleX, scaleY);
+        overlayCtx.beginPath();
+        overlayCtx.moveTo(lp.x, lp.y);
+        overlayCtx.lineTo(cp.x, cp.y);
+        overlayCtx.stroke();
+
+        if (state.polygonPoints.length >= 2) {
+          overlayCtx.setLineDash([4, 4]);
+          overlayCtx.beginPath();
+          overlayCtx.moveTo(cp.x, cp.y);
+          overlayCtx.lineTo(first.x, first.y);
+          overlayCtx.stroke();
+          overlayCtx.setLineDash([]);
+        }
+      }
+    }
+    overlayCtx.restore();
   }
 
   function linePoints(x0, y0, x1, y1) {
@@ -697,36 +805,7 @@
       overlayCtx.stroke();
     }
 
-    if (state.shapePreview) {
-      const preview = state.pixels.slice();
-      shapeRasterToBuffer(preview, state.shapePreview);
-      overlayCtx.save();
-      overlayCtx.fillStyle = "rgba(134,192,108,0.35)";
-      for (let y = 0; y < H; y++) {
-        for (let x = 0; x < W; x++) {
-          const i = y * W + x;
-          if (preview[i] !== state.pixels[i]) {
-            overlayCtx.fillRect(x * scaleX, y * scaleY, scaleX, scaleY);
-          }
-        }
-      }
-      overlayCtx.restore();
-    }
-
-    if (state.tool === "polygon" && state.polygonPoints.length > 0) {
-      overlayCtx.save();
-      overlayCtx.strokeStyle = "rgba(255,255,255,0.75)";
-      overlayCtx.lineWidth = 1;
-      overlayCtx.beginPath();
-      const first = state.polygonPoints[0];
-      overlayCtx.moveTo((first.x + 0.5) * scaleX, (first.y + 0.5) * scaleY);
-      for (let i = 1; i < state.polygonPoints.length; i++) {
-        const p = state.polygonPoints[i];
-        overlayCtx.lineTo((p.x + 0.5) * scaleX, (p.y + 0.5) * scaleY);
-      }
-      overlayCtx.stroke();
-      overlayCtx.restore();
-    }
+    drawShapePreview(scaleX, scaleY);
   }
 
   function undo() { const prev = state.undoStack.pop(); if (!prev) return; state.redoStack.push(state.pixels.slice()); state.pixels = prev; renderCanvas(); updateUndoRedoButtons(); }
@@ -747,11 +826,11 @@
     if (!data.pixels) throw new Error(t("errPixelsMissing"));
     const arr = decodePixelsBase64(data.pixels);
     if (arr.length !== W * H) throw new Error(t("errPixelsInvalid"));
-    state.pixels = arr; state.undoStack.length = 0; state.redoStack.length = 0;
+    state.pixels = arr; state.undoStack.length = 0; state.redoStack.length = 0; cancelPolygon();
     if (data.meta?.lang && STR[data.meta.lang]) { state.lang = data.meta.lang; ui.langSelect.value = state.lang; localStorage.setItem("gbpaint_lang", state.lang); updateI18n(); }
     renderCanvas(); updateUndoRedoButtons();
   }
-  function newCanvas() { if (!confirm(t("confirmNew"))) return; state.pixels = new Uint8Array(W * H).fill(bgIndex); state.undoStack.length = 0; state.redoStack.length = 0; renderCanvas(); updateUndoRedoButtons(); }
+  function newCanvas() { if (!confirm(t("confirmNew"))) return; state.pixels = new Uint8Array(W * H).fill(bgIndex); state.undoStack.length = 0; state.redoStack.length = 0; cancelPolygon(); renderCanvas(); updateUndoRedoButtons(); }
 
   function exportPNGScale(scale) {
     const out = document.createElement("canvas"); out.width = W * scale; out.height = H * scale;
@@ -816,8 +895,20 @@
     ui.patternEnabled.checked = state.patternEnabled; ui.patternType.value = state.patternType; ui.patternInvert.checked = state.patternInvert;
     ui.gridToggle.checked = state.showGrid; ui.tileSnapToggle.checked = state.tileSnap; ui.heatmapToggle.checked = state.showHeatmap; ui.pencilOnlyToggle.checked = state.pencilOnly; ui.includeEmptyTiles.checked = state.includeEmptyTiles;
     if (ui.shapeMode) ui.shapeMode.value = state.shapeMode;
-    if (ui.shapeFillColor) ui.shapeFillColor.value = String(state.shapeFillColor);
     selectColor(state.selectedColor); updateUndoRedoButtons();
+  }
+
+  function setTool(nextTool) {
+    if (state.tool === "polygon" && nextTool !== "polygon") cancelPolygon();
+    if (nextTool === "polygon") {
+      state.shapePreview = null;
+      state.polygonMode = state.polygonPoints.length ? "placing" : "idle";
+    } else {
+      state.shapePreview = null;
+    }
+    state.tool = nextTool;
+    syncUI();
+    renderOverlay();
   }
 
   function getPointerDistance(a, b) {
@@ -893,7 +984,7 @@
   }
 
   function tryRegisterTap(ev) {
-    if (state.tool === "fill") return;
+    if (state.tool === "fill" || state.tool === "polygon") return;
     if (!activeDown || activeDown.moved || activeDown.pointerType === "mouse" || state.isPinching) return;
     const dt = performance.now() - activeDown.time;
     if (dt > TAP_MAX_MS) return;
@@ -959,11 +1050,6 @@
       b.title = `${i+1}`;
       b.addEventListener("click", () => { selectColor(i); syncUI(); });
       ui.paletteRow.append(b);
-
-      const opt = document.createElement("option");
-      opt.value = String(i);
-      opt.textContent = `${i + 1}: ${hex}`;
-      ui.shapeFillColor.append(opt);
     });
 
     paintCanvas.addEventListener("pointerdown", (ev) => {
@@ -976,7 +1062,6 @@
 
       activePointers.set(ev.pointerId, { clientX: ev.clientX, clientY: ev.clientY, pointerType: ev.pointerType });
       paintCanvas.setPointerCapture(ev.pointerId);
-
       activeDown = { x: ev.clientX, y: ev.clientY, time: performance.now(), moved: false, pointerType: ev.pointerType };
 
       if (activePointers.size >= 2) {
@@ -995,13 +1080,7 @@
       const pt = getPixelFromPointerEvent(ev);
 
       if (state.tool === "polygon") {
-        if (ev.detail >= 2 && state.polygonPoints.length >= 3) {
-          commitShape({ type: "polygon", points: state.polygonPoints.slice() });
-          state.polygonPoints = [];
-        } else {
-          state.polygonPoints.push(pt);
-        }
-        state.shapePreview = null;
+        state.polygonCursor = pt;
         renderOverlay();
         return;
       }
@@ -1038,11 +1117,20 @@
         activeDown.moved = true;
       }
 
+      if (state.tool === "polygon") {
+        state.polygonCursor = getPixelFromPointerEvent(ev);
+        if (state.polygonMode !== "idle") {
+          state.polygonMode = "preview";
+          renderOverlay();
+        }
+        return;
+      }
+
       if (state.pendingDraw && ev.pointerId === pendingPointerId) {
         if (["line", "rect", "ellipse"].includes(state.tool) && state.shapePreview) {
           const pt = getPixelFromPointerEvent(ev);
           let endPt = pt;
-          if (ev.shiftKey && (state.tool === "line")) {
+          if (ev.shiftKey && state.tool === "line") {
             const dx = pt.x - state.shapePreview.start.x;
             const dy = pt.y - state.shapePreview.start.y;
             if (Math.abs(dx) >= Math.abs(dy)) endPt = { x: pt.x, y: state.shapePreview.start.y };
@@ -1061,6 +1149,7 @@
           renderOverlay();
           return;
         }
+
         const moved = Math.hypot(ev.clientX - activeDown.x, ev.clientY - activeDown.y) > 3;
         if (moved) {
           if (state.tool !== "fill") {
@@ -1088,7 +1177,7 @@
       const pt = getPixelFromPointerEvent(ev);
       const points = linePoints(lastPoint.x, lastPoint.y, pt.x, pt.y);
       let changed = false;
-      for (const [x,y] of points) changed = drawBrush(x, y) || changed;
+      for (const [x, y] of points) changed = drawBrush(x, y) || changed;
       if (changed) renderCanvas();
       lastPoint = pt;
     }, { passive: false });
@@ -1098,6 +1187,8 @@
       if (isMousePanning && ev.pointerType === "mouse") {
         endMousePan(ev);
       }
+
+      const wasPinching = pinchMode || state.isPinching;
       activePointers.delete(ev.pointerId);
       if (pinchMode && activePointers.size < 2) {
         pinchMode = false;
@@ -1107,18 +1198,21 @@
         renderOverlay();
       }
 
+      if (state.tool === "polygon" && !wasPinching && !state.isPinching && ev.target === paintCanvas && activeDown && !activeDown.moved) {
+        addPolygonPoint(getPixelFromPointerEvent(ev));
+        maybeConfirmPolygonByDoubleTap(ev);
+      }
+
       if (ev.pointerId === activeStrokePointerId && state.isDrawing) {
         finishDrawing(ev);
       } else if (state.pendingDraw && ev.pointerId === pendingPointerId) {
         const pt = pendingStartPixel || getPixelFromPointerEvent(ev);
         state.pendingDraw = false;
         if (["line", "rect", "ellipse"].includes(state.tool) && state.shapePreview) {
-          if (state.tool === "line") state.shapePreview.type = "line";
           commitShape(state.shapePreview);
           state.shapePreview = null;
           renderOverlay();
-        } else
-        if (state.tool === "fill" && canDrawWithPointerType(ev.pointerType)) {
+        } else if (state.tool === "fill" && canDrawWithPointerType(ev.pointerType)) {
           beginStroke();
           if (floodFill(pt.x, pt.y)) renderCanvas();
           endStroke();
@@ -1170,14 +1264,18 @@
 
     paintCanvas.addEventListener("gesturestart", (ev) => ev.preventDefault(), { passive: false });
     paintCanvas.addEventListener("gesturechange", (ev) => ev.preventDefault(), { passive: false });
+    paintCanvas.addEventListener("dblclick", (ev) => {
+      ev.preventDefault();
+      if (state.tool === "polygon" && ev.target === paintCanvas) tryCommitPolygon();
+    }, { passive: false });
 
-    document.getElementById("toolPen").addEventListener("click", () => { state.tool = "pen"; syncUI(); });
-    document.getElementById("toolEraser").addEventListener("click", () => { state.tool = "eraser"; syncUI(); });
-    document.getElementById("toolFill").addEventListener("click", () => { state.tool = "fill"; syncUI(); });
-    document.getElementById("toolLine").addEventListener("click", () => { state.tool = "line"; state.shapePreview = null; syncUI(); renderOverlay(); });
-    document.getElementById("toolRect").addEventListener("click", () => { state.tool = "rect"; state.shapePreview = null; syncUI(); renderOverlay(); });
-    document.getElementById("toolEllipse").addEventListener("click", () => { state.tool = "ellipse"; state.shapePreview = null; syncUI(); renderOverlay(); });
-    document.getElementById("toolPolygon").addEventListener("click", () => { state.tool = "polygon"; state.shapePreview = null; syncUI(); renderOverlay(); });
+    document.getElementById("toolPen").addEventListener("click", () => { setTool("pen"); });
+    document.getElementById("toolEraser").addEventListener("click", () => { setTool("eraser"); });
+    document.getElementById("toolFill").addEventListener("click", () => { setTool("fill"); });
+    document.getElementById("toolLine").addEventListener("click", () => { setTool("line"); });
+    document.getElementById("toolRect").addEventListener("click", () => { setTool("rect"); });
+    document.getElementById("toolEllipse").addEventListener("click", () => { setTool("ellipse"); });
+    document.getElementById("toolPolygon").addEventListener("click", () => { setTool("polygon"); });
     ui.brushButtons.forEach(b => b.addEventListener("click", () => { state.brushSize = Number(b.dataset.size); syncUI(); }));
 
     ui.patternEnabled.addEventListener("change", () => { state.patternEnabled = ui.patternEnabled.checked; syncUI(); });
@@ -1190,7 +1288,7 @@
     ui.resetViewBtn.addEventListener("click", resetViewTransform);
     ui.includeEmptyTiles.addEventListener("change", () => { state.includeEmptyTiles = ui.includeEmptyTiles.checked; updateTileInfo(); });
     ui.shapeMode.addEventListener("change", () => { state.shapeMode = ui.shapeMode.value; renderOverlay(); });
-    ui.shapeFillColor.addEventListener("change", () => { state.shapeFillColor = Number(ui.shapeFillColor.value); renderOverlay(); });
+    ui.polygonCancelBtn.addEventListener("click", () => { cancelPolygon(); });
 
     document.getElementById("newBtn").addEventListener("click", newCanvas);
     document.getElementById("saveJsonBtn").addEventListener("click", saveJSON);
@@ -1235,23 +1333,19 @@
       if (mod && key === "e") { ev.preventDefault(); exportPNGScale(1); return; }
 
       if (key >= "1" && key <= "4") { selectColor(Number(key) - 1); syncUI(); return; }
-      if (key === "b") { state.tool = "pen"; syncUI(); return; }
-      if (key === "e") { state.tool = "eraser"; syncUI(); return; }
-      if (key === "g" && !ev.shiftKey) { state.tool = "fill"; syncUI(); return; }
-      if (key === "l") { state.tool = "line"; state.shapePreview = null; syncUI(); renderOverlay(); return; }
-      if (key === "r") { state.tool = "rect"; state.shapePreview = null; syncUI(); renderOverlay(); return; }
-      if (key === "o") { state.tool = "ellipse"; state.shapePreview = null; syncUI(); renderOverlay(); return; }
-      if (key === "k") { state.tool = "polygon"; state.shapePreview = null; syncUI(); renderOverlay(); return; }
-      if (key === "enter" && state.tool === "polygon" && state.polygonPoints.length >= 3) {
-        commitShape({ type: "polygon", points: state.polygonPoints.slice() });
-        state.polygonPoints = [];
-        renderOverlay();
+      if (key === "b") { setTool("pen"); return; }
+      if (key === "e") { setTool("eraser"); return; }
+      if (key === "g" && !ev.shiftKey) { setTool("fill"); return; }
+      if (key === "l") { setTool("line"); return; }
+      if (key === "r") { setTool("rect"); return; }
+      if (key === "o") { setTool("ellipse"); return; }
+      if (key === "k") { setTool("polygon"); return; }
+      if (key === "enter" && state.tool === "polygon") {
+        tryCommitPolygon();
         return;
       }
       if (key === "escape" && state.tool === "polygon") {
-        state.polygonPoints = [];
-        state.shapePreview = null;
-        renderOverlay();
+        cancelPolygon();
         return;
       }
       if (key === "p") { state.patternEnabled = !state.patternEnabled; syncUI(); return; }
