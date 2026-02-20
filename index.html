@@ -125,6 +125,13 @@
       <label>不透明度 <input type="range" id="guideOpacity" min="0" max="100" value="40" /></label>
       <button id="guideClearBtn">削除</button>
     </div>
+    <div class="row">
+      <label>位置X <input type="range" id="guideOffsetX" min="-80" max="80" value="0" /></label>
+      <span id="guideOffsetXValue">X:+0</span>
+      <label>位置Y <input type="range" id="guideOffsetY" min="-80" max="80" value="0" /></label>
+      <span id="guideOffsetYValue">Y:+0</span>
+      <button id="guideCenterBtn">センターに戻す</button>
+    </div>
     <input type="file" id="guideFileInput" accept="image/*" style="display:none" />
 
     <h2 data-i18n="file">ファイル</h2>
@@ -227,7 +234,7 @@
     strokeBefore:null, undoStack:[], redoStack:[],
     fitScale: 1, viewScale: 1, viewOffsetX: 0, viewOffsetY: 0,
     shapePreview:null, polygonPoints:[], polygonMode:"idle", polygonCursor:null, polygonHold:null,
-    guideVisible:false, guideOpacity:0.4
+    guideVisible:false, guideOpacity:0.4, guideOffsetX:0, guideOffsetY:0
   };
 
   const guideCanvas = document.getElementById("guideCanvas");
@@ -264,7 +271,12 @@
     guideVisibleToggle: document.getElementById("guideVisibleToggle"),
     guideOpacity: document.getElementById("guideOpacity"),
     guideClearBtn: document.getElementById("guideClearBtn"),
-    guideFileInput: document.getElementById("guideFileInput")
+    guideFileInput: document.getElementById("guideFileInput"),
+    guideOffsetX: document.getElementById("guideOffsetX"),
+    guideOffsetY: document.getElementById("guideOffsetY"),
+    guideOffsetXValue: document.getElementById("guideOffsetXValue"),
+    guideOffsetYValue: document.getElementById("guideOffsetYValue"),
+    guideCenterBtn: document.getElementById("guideCenterBtn")
   };
 
   ui.shapeMode = document.getElementById("shapeMode");
@@ -344,9 +356,20 @@
       return;
     }
     guideCanvas.style.display = "block";
+    const imgW = Math.max(1, guideImage.naturalWidth || guideImage.width || 1);
+    const imgH = Math.max(1, guideImage.naturalHeight || guideImage.height || 1);
+    const scale = Math.min(W / imgW, H / imgH);
+    const drawW = imgW * scale;
+    const drawH = imgH * scale;
+    const baseX = (W - drawW) / 2;
+    const baseY = (H - drawH) / 2;
+    const x = baseX + state.guideOffsetX;
+    const y = baseY + state.guideOffsetY;
+
     guideCtx.save();
     guideCtx.globalAlpha = Math.max(0, Math.min(1, state.guideOpacity));
-    guideCtx.drawImage(guideImage, 0, 0, W, H);
+    guideCtx.imageSmoothingEnabled = true;
+    guideCtx.drawImage(guideImage, x, y, drawW, drawH);
     guideCtx.restore();
   }
 
@@ -373,8 +396,14 @@
     guideImage = null;
     state.guideVisible = false;
     state.guideOpacity = 0.4;
+    state.guideOffsetX = 0;
+    state.guideOffsetY = 0;
     ui.guideVisibleToggle.checked = false;
     ui.guideOpacity.value = "40";
+    ui.guideOffsetX.value = "0";
+    ui.guideOffsetY.value = "0";
+    ui.guideOffsetXValue.textContent = "X:+0";
+    ui.guideOffsetYValue.textContent = "Y:+0";
     clearGuideCanvas();
     guideCanvas.style.display = "none";
   }
@@ -1046,6 +1075,10 @@
     ui.polygonConfirmBtn.hidden = !(state.tool === "polygon" && state.polygonMode !== "idle");
     ui.guideVisibleToggle.checked = state.guideVisible;
     ui.guideOpacity.value = String(Math.round(state.guideOpacity * 100));
+    ui.guideOffsetX.value = String(state.guideOffsetX);
+    ui.guideOffsetY.value = String(state.guideOffsetY);
+    ui.guideOffsetXValue.textContent = `X:${state.guideOffsetX >= 0 ? "+" : ""}${state.guideOffsetX}`;
+    ui.guideOffsetYValue.textContent = `Y:${state.guideOffsetY >= 0 ? "+" : ""}${state.guideOffsetY}`;
     selectColor(state.selectedColor); updateUndoRedoButtons();
   }
 
@@ -1472,6 +1505,22 @@
     });
     ui.guideOpacity.addEventListener("input", () => {
       state.guideOpacity = Math.max(0, Math.min(1, Number(ui.guideOpacity.value) / 100));
+      renderGuide();
+    });
+    ui.guideOffsetX.addEventListener("input", () => {
+      state.guideOffsetX = Math.max(-80, Math.min(80, Number(ui.guideOffsetX.value) || 0));
+      syncUI();
+      renderGuide();
+    });
+    ui.guideOffsetY.addEventListener("input", () => {
+      state.guideOffsetY = Math.max(-80, Math.min(80, Number(ui.guideOffsetY.value) || 0));
+      syncUI();
+      renderGuide();
+    });
+    ui.guideCenterBtn.addEventListener("click", () => {
+      state.guideOffsetX = 0;
+      state.guideOffsetY = 0;
+      syncUI();
       renderGuide();
     });
     ui.guideClearBtn.addEventListener("click", clearGuideImage);
