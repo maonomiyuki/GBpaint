@@ -362,16 +362,29 @@
     renderOverlay();
   }
 
-  function getPixelFromPointerEvent(ev) {
-    const rect = paintCanvas.getBoundingClientRect();
-    const nx = (ev.clientX - rect.left) / rect.width;
-    const ny = (ev.clientY - rect.top) / rect.height;
-    let x = Math.floor(nx * W);
-    let y = Math.floor(ny * H);
+  function getCanvasPixelFromClient(clientX, clientY, useTileSnap = state.tileSnap) {
+    const workspaceRect = document.querySelector(".workspace").getBoundingClientRect();
+    const effectiveScale = state.fitScale * state.viewScale;
+    if (!Number.isFinite(clientX) || !Number.isFinite(clientY) || !Number.isFinite(effectiveScale) || effectiveScale <= 0) {
+      console.warn("[GBPaint] invalid pointer coordinates", { clientX, clientY, effectiveScale });
+      return null;
+    }
+    const screenX = clientX - workspaceRect.left;
+    const screenY = clientY - workspaceRect.top;
+    let x = Math.floor((screenX - state.viewOffsetX) / effectiveScale);
+    let y = Math.floor((screenY - state.viewOffsetY) / effectiveScale);
+    if (!Number.isFinite(x) || !Number.isFinite(y)) {
+      console.warn("[GBPaint] failed to convert pointer to canvas pixel", { clientX, clientY, screenX, screenY, effectiveScale });
+      return null;
+    }
     x = Math.max(0, Math.min(W - 1, x));
     y = Math.max(0, Math.min(H - 1, y));
-    if (state.tileSnap) { x = Math.floor(x / TILE) * TILE; y = Math.floor(y / TILE) * TILE; }
+    if (useTileSnap) { x = Math.floor(x / TILE) * TILE; y = Math.floor(y / TILE) * TILE; }
     return { x, y };
+  }
+
+  function getPixelFromPointerEvent(ev, useTileSnap = state.tileSnap) {
+    return getCanvasPixelFromClient(ev.clientX, ev.clientY, useTileSnap);
   }
 
   function getWorkspacePointFromEvent(ev) {
@@ -501,6 +514,18 @@
     return { x0, y0, x1, y1 };
   }
 
+  function constrainLineTo45(start, end) {
+    const dx = end.x - start.x;
+    const dy = end.y - start.y;
+    const len = Math.hypot(dx, dy);
+    if (len < 0.0001) return { x: start.x, y: start.y };
+    const step = Math.PI / 4;
+    const snapped = Math.round(Math.atan2(dy, dx) / step) * step;
+    const x = Math.round(start.x + Math.cos(snapped) * len);
+    const y = Math.round(start.y + Math.sin(snapped) * len);
+    return { x: Math.max(0, Math.min(W - 1, x)), y: Math.max(0, Math.min(H - 1, y)) };
+  }
+
   function shapeRasterToBuffer(target, shape) {
     const mode = state.shapeMode;
     const strokeColor = shapeStrokeColor();
@@ -622,6 +647,7 @@
   }
 
   function addPolygonPoint(pt) {
+    if (!pt) return;
     if (state.polygonPoints.length) {
       const prev = state.polygonPoints[state.polygonPoints.length - 1];
       if (prev.x === pt.x && prev.y === pt.y) return;
@@ -657,20 +683,29 @@
     overlayCtx.lineCap = "butt";
     overlayCtx.lineJoin = "miter";
 
-    if (state.shapePreview && (state.shapePreview.type === "rect" || state.shapePreview.type === "ellipse")) {
-      const { x0, y0, x1, y1 } = rectBounds(state.shapePreview.start, state.shapePreview.end);
-      if (state.shapePreview.type === "rect") {
-        const p0 = toOverlayPoint(x0, y0, scaleX, scaleY);
-        const p1 = toOverlayPoint(x1 + 1, y1 + 1, scaleX, scaleY);
-        overlayCtx.strokeRect(p0.x, p0.y, Math.max(1, p1.x - p0.x), Math.max(1, p1.y - p0.y));
-      } else {
-        const cx = ((x0 + x1 + 1) / 2) * scaleX;
-        const cy = ((y0 + y1 + 1) / 2) * scaleY;
-        const rx = Math.max(0.5, ((x1 - x0 + 1) / 2) * scaleX);
-        const ry = Math.max(0.5, ((y1 - y0 + 1) / 2) * scaleY);
+    if (state.shapePreview && ["line", "rect", "ellipse"].includes(state.shapePreview.type)) {
+      if (state.shapePreview.type === "line") {
+        const p0 = toOverlayPoint(state.shapePreview.start.x, state.shapePreview.start.y, scaleX, scaleY);
+        const p1 = toOverlayPoint(state.shapePreview.end.x, state.shapePreview.end.y, scaleX, scaleY);
         overlayCtx.beginPath();
-        overlayCtx.ellipse(cx, cy, rx, ry, 0, 0, Math.PI * 2);
+        overlayCtx.moveTo(p0.x, p0.y);
+        overlayCtx.lineTo(p1.x, p1.y);
         overlayCtx.stroke();
+      } else {
+        const { x0, y0, x1, y1 } = rectBounds(state.shapePreview.start, state.shapePreview.end);
+        if (state.shapePreview.type === "rect") {
+          const p0 = toOverlayPoint(x0, y0, scaleX, scaleY);
+          const p1 = toOverlayPoint(x1 + 1, y1 + 1, scaleX, scaleY);
+          overlayCtx.strokeRect(p0.x, p0.y, Math.max(1, p1.x - p0.x), Math.max(1, p1.y - p0.y));
+        } else {
+          const cx = ((x0 + x1 + 1) / 2) * scaleX;
+          const cy = ((y0 + y1 + 1) / 2) * scaleY;
+          const rx = Math.max(0.5, ((x1 - x0 + 1) / 2) * scaleX);
+          const ry = Math.max(0.5, ((y1 - y0 + 1) / 2) * scaleY);
+          overlayCtx.beginPath();
+          overlayCtx.ellipse(cx, cy, rx, ry, 0, 0, Math.PI * 2);
+          overlayCtx.stroke();
+        }
       }
     }
 
@@ -1078,6 +1113,25 @@
       }
 
       const pt = getPixelFromPointerEvent(ev);
+      if (!pt) {
+        state.pendingDraw = false;
+        pendingPointerId = null;
+        pendingStartPixel = null;
+        return;
+      }
+
+      if (state.tool === "fill") {
+        if (!state.isPinching && !pinchMode) {
+          beginStroke();
+          if (floodFill(pt.x, pt.y)) renderCanvas();
+          endStroke();
+        }
+        state.pendingDraw = false;
+        pendingPointerId = null;
+        pendingStartPixel = null;
+        updateCanvasGestureBlock();
+        return;
+      }
 
       if (state.tool === "polygon") {
         state.polygonCursor = pt;
@@ -1129,12 +1183,10 @@
       if (state.pendingDraw && ev.pointerId === pendingPointerId) {
         if (["line", "rect", "ellipse"].includes(state.tool) && state.shapePreview) {
           const pt = getPixelFromPointerEvent(ev);
+          if (!pt) return;
           let endPt = pt;
           if (ev.shiftKey && state.tool === "line") {
-            const dx = pt.x - state.shapePreview.start.x;
-            const dy = pt.y - state.shapePreview.start.y;
-            if (Math.abs(dx) >= Math.abs(dy)) endPt = { x: pt.x, y: state.shapePreview.start.y };
-            else endPt = { x: state.shapePreview.start.x, y: pt.y };
+            endPt = constrainLineTo45(state.shapePreview.start, pt);
           }
           if (ev.shiftKey && (state.tool === "rect" || state.tool === "ellipse")) {
             const dx = pt.x - state.shapePreview.start.x;
@@ -1158,6 +1210,7 @@
             beginStroke();
             drawBrush(pendingStartPixel.x, pendingStartPixel.y);
             const pt = getPixelFromPointerEvent(ev);
+            if (!pt) return;
             const pts = linePoints(pendingStartPixel.x, pendingStartPixel.y, pt.x, pt.y);
             let changed = false;
             for (const [x, y] of pts) changed = drawBrush(x, y) || changed;
@@ -1175,6 +1228,7 @@
 
       if (!state.isDrawing || ev.pointerId !== activeStrokePointerId) return;
       const pt = getPixelFromPointerEvent(ev);
+      if (!pt) return;
       const points = linePoints(lastPoint.x, lastPoint.y, pt.x, pt.y);
       let changed = false;
       for (const [x, y] of points) changed = drawBrush(x, y) || changed;
@@ -1206,16 +1260,11 @@
       if (ev.pointerId === activeStrokePointerId && state.isDrawing) {
         finishDrawing(ev);
       } else if (state.pendingDraw && ev.pointerId === pendingPointerId) {
-        const pt = pendingStartPixel || getPixelFromPointerEvent(ev);
         state.pendingDraw = false;
         if (["line", "rect", "ellipse"].includes(state.tool) && state.shapePreview) {
           commitShape(state.shapePreview);
           state.shapePreview = null;
           renderOverlay();
-        } else if (state.tool === "fill" && canDrawWithPointerType(ev.pointerType)) {
-          beginStroke();
-          if (floodFill(pt.x, pt.y)) renderCanvas();
-          endStroke();
         }
       }
 
