@@ -439,7 +439,6 @@
   let lastCanvasPointerType = null;
   let pendingHasDragged = false;
   let guideImage = null;
-  let guideSourceCanvas = null;
   let guideImageURL = null;
   const AUTOSAVE_KEY = "gbpaint_autosave_v1";
   let autosaveTimer = null;
@@ -548,26 +547,15 @@
     guideCtx.clearRect(0, 0, guideCanvas.width, guideCanvas.height);
   }
 
-  function renderGuide() {
-    clearGuideCanvas();
-    if (!guideSourceCanvas || !state.guideVisible) {
-      guideCanvas.style.display = "none";
-      return;
-    }
-    guideCanvas.style.display = "block";
-    guideCtx.save();
-    guideCtx.globalAlpha = Math.max(0, Math.min(1, state.guideOpacity));
-    guideCtx.imageSmoothingEnabled = true;
-    guideCtx.drawImage(guideSourceCanvas, state.guideOffsetX, state.guideOffsetY, W, H);
-    guideCtx.restore();
+  function updateGuideLayerDisplay() {
+    const effectiveScale = state.fitScale * state.viewScale;
+    guideCanvas.style.display = state.guideVisible ? "block" : "none";
+    guideCanvas.style.opacity = String(Math.max(0, Math.min(1, state.guideOpacity)));
+    guideCanvas.style.transform = `translate(${state.guideOffsetX * effectiveScale}px, ${state.guideOffsetY * effectiveScale}px)`;
   }
 
-  function buildGuideSourceFromImage(img) {
-    const source = document.createElement("canvas");
-    source.width = W;
-    source.height = H;
-    const ctx = source.getContext("2d");
-    ctx.clearRect(0, 0, W, H);
+  function drawGuideImageOnce(img) {
+    clearGuideCanvas();
     const imgW = Math.max(1, img.naturalWidth || img.width || 1);
     const imgH = Math.max(1, img.naturalHeight || img.height || 1);
     const scale = Math.min(W / imgW, H / imgH);
@@ -575,8 +563,11 @@
     const drawH = imgH * scale;
     const x = (W - drawW) / 2;
     const y = (H - drawH) / 2;
-    ctx.drawImage(img, x, y, drawW, drawH);
-    guideSourceCanvas = source;
+    guideCtx.save();
+    guideCtx.globalAlpha = 1;
+    guideCtx.imageSmoothingEnabled = true;
+    guideCtx.drawImage(img, x, y, drawW, drawH);
+    guideCtx.restore();
   }
 
   async function loadGuideImage(file) {
@@ -588,9 +579,9 @@
           resizeQuality: "high"
         });
         guideImage = bmp;
-        buildGuideSourceFromImage(bmp);
+        drawGuideImageOnce(bmp);
         state.guideVisible = true;
-        renderGuide();
+        updateGuideLayerDisplay();
         return;
       } catch (_) {}
     }
@@ -619,14 +610,13 @@
     tmp.getContext("2d").drawImage(img, 0, 0, tmp.width, tmp.height);
 
     guideImage = tmp;
-    buildGuideSourceFromImage(tmp);
+    drawGuideImageOnce(tmp);
     state.guideVisible = true;
-    renderGuide();
+    updateGuideLayerDisplay();
   }
 
   function clearGuideImage() {
     guideImage = null;
-    guideSourceCanvas = null;
     if (guideImageURL) { URL.revokeObjectURL(guideImageURL); guideImageURL = null; }
     state.guideVisible = false;
     state.guideOpacity = 0.4;
@@ -639,6 +629,7 @@
     ui.guideOffsetXValue.textContent = "X:+0";
     ui.guideOffsetYValue.textContent = "Y:+0";
     clearGuideCanvas();
+    guideCanvas.style.transform = "translate(0px, 0px)";
     guideCanvas.style.display = "none";
   }
 
@@ -672,7 +663,7 @@
     wrap.style.left = `${state.viewOffsetX}px`;
     wrap.style.top = `${state.viewOffsetY}px`;
     updateOverlayMetrics();
-    renderGuide();
+    updateGuideLayerDisplay();
   }
 
   function resetViewTransform() {
@@ -723,7 +714,7 @@
   function forceRepaintAll() {
     requestRenderCanvas();
     renderOverlay();
-    renderGuide();
+    updateGuideLayerDisplay();
   }
 
   function getCanvasPixelFromClient(clientX, clientY, useTileSnap = state.tileSnap) {
@@ -1345,6 +1336,7 @@
     [...ui.quickPaletteRow.children].forEach((c, i) => c.style.outline = i === state.selectedColor ? "2px solid #fff" : "none");
     ui.quickGuideToggleBtn.classList.toggle("active", state.guideVisible);
     ui.quickGridToggleBtn.classList.toggle("active", state.showGrid);
+    updateGuideLayerDisplay();
     selectColor(state.selectedColor); updateUndoRedoButtons();
   }
 
@@ -1546,7 +1538,7 @@
     ui.quickBrushButtons.forEach(b => b.addEventListener("click", () => { state.brushSize = Number(b.dataset.size); syncUI(); }));
     ui.quickUndoBtn.addEventListener("click", undo);
     ui.quickRedoBtn.addEventListener("click", redo);
-    ui.quickGuideToggleBtn.addEventListener("click", () => { state.guideVisible = !state.guideVisible; syncUI(); renderGuide(); });
+    ui.quickGuideToggleBtn.addEventListener("click", () => { state.guideVisible = !state.guideVisible; syncUI(); });
     ui.quickGridToggleBtn.addEventListener("click", () => { state.showGrid = !state.showGrid; syncUI(); renderOverlay(); });
 
     paintCanvas.addEventListener("pointerdown", (ev) => {
@@ -1817,27 +1809,27 @@
     ui.guideLoadBtn.addEventListener("click", () => ui.guideFileInput.click());
     ui.guideVisibleToggle.addEventListener("change", () => {
       state.guideVisible = ui.guideVisibleToggle.checked;
-      renderGuide();
+      updateGuideLayerDisplay();
     });
     ui.guideOpacity.addEventListener("input", () => {
       state.guideOpacity = Math.max(0, Math.min(1, Number(ui.guideOpacity.value) / 100));
-      renderGuide();
+      updateGuideLayerDisplay();
     });
     ui.guideOffsetX.addEventListener("input", () => {
       state.guideOffsetX = Math.max(-80, Math.min(80, Number(ui.guideOffsetX.value) || 0));
       syncUI();
-      renderGuide();
+      updateGuideLayerDisplay();
     });
     ui.guideOffsetY.addEventListener("input", () => {
       state.guideOffsetY = Math.max(-80, Math.min(80, Number(ui.guideOffsetY.value) || 0));
       syncUI();
-      renderGuide();
+      updateGuideLayerDisplay();
     });
     ui.guideCenterBtn.addEventListener("click", () => {
       state.guideOffsetX = 0;
       state.guideOffsetY = 0;
       syncUI();
-      renderGuide();
+      updateGuideLayerDisplay();
     });
     ui.guideClearBtn.addEventListener("click", clearGuideImage);
     ui.guideFileInput.addEventListener("change", async (ev) => {
@@ -1961,7 +1953,7 @@
     syncUI();
     guideCanvas.style.display = "none";
     updateOverlayMetrics();
-    renderGuide();
+    updateGuideLayerDisplay();
     updateScale();
     renderCanvas();
     scheduleTileInfoUpdate(0);
