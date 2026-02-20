@@ -2,7 +2,7 @@
 <html lang="ja">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
   <title>GB Paint</title>
   <style>
     :root { --bg:#111; --panel:#1c1c1c; --text:#e9e9e9; --accent:#86c06c; --warn:#ffcc66; }
@@ -666,6 +666,8 @@
     const dist = Math.hypot(ev.clientX - polygonTapInfo.x, ev.clientY - polygonTapInfo.y);
     polygonTapInfo = { time: now, x: ev.clientX, y: ev.clientY };
     if (dt <= POLY_DOUBLE_MS && dist <= POLY_DOUBLE_DIST) {
+      ev.preventDefault();
+      ev.stopPropagation();
       tryCommitPolygon();
       polygonTapInfo.time = 0;
     }
@@ -1315,6 +1317,7 @@
     paintCanvas.addEventListener("gesturechange", (ev) => ev.preventDefault(), { passive: false });
     paintCanvas.addEventListener("dblclick", (ev) => {
       ev.preventDefault();
+      ev.stopPropagation();
       if (state.tool === "polygon" && ev.target === paintCanvas) tryCommitPolygon();
     }, { passive: false });
 
