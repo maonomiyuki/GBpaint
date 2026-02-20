@@ -26,6 +26,7 @@
     #overlayCanvas { position:absolute; left:0; top:0; pointer-events:none; touch-action:none; user-select:none; -webkit-user-select:none; -webkit-touch-callout:none; }
     .header-actions { display:flex; gap:6px; align-items:center; touch-action:manipulation; -webkit-user-select:none; user-select:none; pointer-events:auto; }
     .header-actions button { min-width:44px; min-height:44px; font-size:20px; font-weight:700; padding:0; touch-action:manipulation; -webkit-user-select:none; user-select:none; pointer-events:auto; }
+    #polygonConfirmBtn { min-width:34px; min-height:34px; font-size:18px; background:#1f4f2d; border-color:#4f9a6f; }
     details summary { cursor:pointer; }
     #uniqueTilesList { display:grid; grid-template-columns:repeat(auto-fill,minmax(90px,1fr)); gap:8px; margin-top:8px; }
     .tile-item { background:#262626; border:1px solid #3f3f3f; border-radius:6px; padding:4px; font-size:.75rem; }
@@ -41,6 +42,7 @@
       <div class="header-actions">
         <button id="undoBtn" title="Undo">↶</button>
         <button id="redoBtn" title="Redo">↷</button>
+        <button id="polygonConfirmBtn" title="Polygon Confirm" hidden>✓</button>
         <label>
           <span data-i18n="lang">言語</span>
           <select id="langSelect">
@@ -210,7 +212,7 @@
     isPinching:false, isPanning:false, isDrawing:false, pendingDraw:false,
     strokeBefore:null, undoStack:[], redoStack:[],
     fitScale: 1, viewScale: 1, viewOffsetX: 0, viewOffsetY: 0,
-    shapePreview:null, polygonPoints:[], polygonMode:"idle", polygonCursor:null
+    shapePreview:null, polygonPoints:[], polygonMode:"idle", polygonCursor:null, polygonHold:null
   };
 
   const paintCanvas = document.getElementById("paintCanvas");
@@ -236,7 +238,8 @@
     jsonFileInput: document.getElementById("jsonFileInput"),
     langSelect: document.getElementById("langSelect"),
     undoBtn: document.getElementById("undoBtn"),
-    redoBtn: document.getElementById("redoBtn")
+    redoBtn: document.getElementById("redoBtn"),
+    polygonConfirmBtn: document.getElementById("polygonConfirmBtn")
   };
 
   ui.shapeMode = document.getElementById("shapeMode");
@@ -254,16 +257,20 @@
   const TAP_MAX_MS = 320;
   const TAP_MAX_MOVE = 12;
   const TAP_CLUSTER_RADIUS = 30;
-  const POLY_DOUBLE_MS = 360;
-  const POLY_DOUBLE_DIST = 20;
+  const POLY_HOLD_MS = 500;
+  const POLY_HOLD_MOVE = 10;
   let tapInfo = { count: 0, time: 0, x: 0, y: 0 };
-  let polygonTapInfo = { time: 0, x: 0, y: 0 };
   let activeStrokePointerId = null;
   let activeDown = null;
   let isMousePanning = false;
   let mousePanStart = { x: 0, y: 0 };
   let mousePanOffsetStart = { x: 0, y: 0 };
   let wheelClampTimer = null;
+  let polygonHoldTimer = null;
+  let polygonHoldTick = null;
+  let polygonHoldPointerId = null;
+  let polygonHoldConfirmed = false;
+  let lastCanvasPointerType = null;
 
   function t(k, ...args) {
     const v = STR[state.lang][k];
@@ -629,6 +636,7 @@
     state.polygonMode = "idle";
     state.polygonCursor = null;
     state.shapePreview = null;
+    clearPolygonHold();
     renderOverlay();
   }
 
@@ -642,6 +650,7 @@
     state.polygonMode = "idle";
     state.polygonCursor = null;
     state.shapePreview = null;
+    clearPolygonHold();
     renderOverlay();
     return ok;
   }
@@ -658,19 +667,36 @@
     renderOverlay();
   }
 
-  function maybeConfirmPolygonByDoubleTap(ev) {
-    if (state.tool !== "polygon" || ev.target !== paintCanvas || state.isPinching || pinchMode) return;
-    if (!activeDown || activeDown.moved) return;
-    const now = performance.now();
-    const dt = now - polygonTapInfo.time;
-    const dist = Math.hypot(ev.clientX - polygonTapInfo.x, ev.clientY - polygonTapInfo.y);
-    polygonTapInfo = { time: now, x: ev.clientX, y: ev.clientY };
-    if (dt <= POLY_DOUBLE_MS && dist <= POLY_DOUBLE_DIST) {
-      ev.preventDefault();
-      ev.stopPropagation();
-      tryCommitPolygon();
-      polygonTapInfo.time = 0;
+  function clearPolygonHold() {
+    if (polygonHoldTimer) { clearTimeout(polygonHoldTimer); polygonHoldTimer = null; }
+    if (polygonHoldTick) { clearInterval(polygonHoldTick); polygonHoldTick = null; }
+    polygonHoldPointerId = null;
+    if (state.polygonHold) {
+      state.polygonHold = null;
+      renderOverlay();
     }
+  }
+
+  function startPolygonHold(ev, pt) {
+    if (state.tool !== "polygon") return;
+    if (state.isPinching || pinchMode) return;
+    if (!state.polygonPoints.length || state.polygonPoints.length < 3) return;
+    if (ev.pointerType !== "touch" && ev.pointerType !== "pen") return;
+    clearPolygonHold();
+    polygonHoldPointerId = ev.pointerId;
+    state.polygonHold = { x: pt.x, y: pt.y, start: performance.now(), progress: 0 };
+    renderOverlay();
+    polygonHoldTick = setInterval(() => {
+      if (!state.polygonHold) return;
+      state.polygonHold.progress = Math.max(0, Math.min(1, (performance.now() - state.polygonHold.start) / POLY_HOLD_MS));
+      renderOverlay();
+    }, 16);
+    polygonHoldTimer = setTimeout(() => {
+      if (!state.polygonHold || state.isPinching || pinchMode) return;
+      polygonHoldConfirmed = true;
+      tryCommitPolygon();
+      clearPolygonHold();
+    }, POLY_HOLD_MS);
   }
 
   function toOverlayPoint(x, y, scaleX, scaleY) {
@@ -739,6 +765,15 @@
           overlayCtx.setLineDash([]);
         }
       }
+    }
+    if (state.polygonHold) {
+      const c = toOverlayPoint(state.polygonHold.x, state.polygonHold.y, scaleX, scaleY);
+      overlayCtx.beginPath();
+      overlayCtx.arc(c.x, c.y, 8, 0, Math.PI * 2);
+      overlayCtx.stroke();
+      overlayCtx.beginPath();
+      overlayCtx.arc(c.x, c.y, 10, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * (state.polygonHold.progress || 0));
+      overlayCtx.stroke();
     }
     overlayCtx.restore();
   }
@@ -932,11 +967,13 @@
     ui.patternEnabled.checked = state.patternEnabled; ui.patternType.value = state.patternType; ui.patternInvert.checked = state.patternInvert;
     ui.gridToggle.checked = state.showGrid; ui.tileSnapToggle.checked = state.tileSnap; ui.heatmapToggle.checked = state.showHeatmap; ui.pencilOnlyToggle.checked = state.pencilOnly; ui.includeEmptyTiles.checked = state.includeEmptyTiles;
     if (ui.shapeMode) ui.shapeMode.value = state.shapeMode;
+    ui.polygonConfirmBtn.hidden = !(state.tool === "polygon" && state.polygonMode !== "idle");
     selectColor(state.selectedColor); updateUndoRedoButtons();
   }
 
   function setTool(nextTool) {
     if (state.tool === "polygon" && nextTool !== "polygon") cancelPolygon();
+    if (nextTool !== "polygon") clearPolygonHold();
     if (nextTool === "polygon") {
       state.shapePreview = null;
       state.polygonMode = state.polygonPoints.length ? "placing" : "idle";
@@ -967,6 +1004,7 @@
     pendingPointerId = null;
     pendingStartPixel = null;
     updateCanvasGestureBlock();
+    clearPolygonHold();
 
     const a = pts[0], b = pts[1];
     pinchPrevDist = Math.max(1, getPointerDistance(a, b));
@@ -1100,6 +1138,7 @@
       activePointers.set(ev.pointerId, { clientX: ev.clientX, clientY: ev.clientY, pointerType: ev.pointerType });
       paintCanvas.setPointerCapture(ev.pointerId);
       activeDown = { x: ev.clientX, y: ev.clientY, time: performance.now(), moved: false, pointerType: ev.pointerType };
+      lastCanvasPointerType = ev.pointerType;
 
       if (activePointers.size >= 2) {
         beginPinch();
@@ -1137,6 +1176,7 @@
 
       if (state.tool === "polygon") {
         state.polygonCursor = pt;
+        startPolygonHold(ev, pt);
         renderOverlay();
         return;
       }
@@ -1171,6 +1211,9 @@
 
       if (activeDown && Math.hypot(ev.clientX - activeDown.x, ev.clientY - activeDown.y) > TAP_MAX_MOVE) {
         activeDown.moved = true;
+      }
+      if (polygonHoldPointerId === ev.pointerId && activeDown && Math.hypot(ev.clientX - activeDown.x, ev.clientY - activeDown.y) > POLY_HOLD_MOVE) {
+        clearPolygonHold();
       }
 
       if (state.tool === "polygon") {
@@ -1255,8 +1298,8 @@
       }
 
       if (state.tool === "polygon" && !wasPinching && !state.isPinching && ev.target === paintCanvas && activeDown && !activeDown.moved) {
-        addPolygonPoint(getPixelFromPointerEvent(ev));
-        maybeConfirmPolygonByDoubleTap(ev);
+        if (!polygonHoldConfirmed) addPolygonPoint(getPixelFromPointerEvent(ev));
+        polygonHoldConfirmed = false;
       }
 
       if (ev.pointerId === activeStrokePointerId && state.isDrawing) {
@@ -1271,6 +1314,7 @@
       }
 
       if (!isMousePanning) tryRegisterTap(ev);
+      if (ev.pointerId === polygonHoldPointerId) clearPolygonHold();
 
       if (paintCanvas.hasPointerCapture && paintCanvas.hasPointerCapture(ev.pointerId)) {
         try { paintCanvas.releasePointerCapture(ev.pointerId); } catch (_) {}
@@ -1302,6 +1346,7 @@
         finishDrawing(ev);
         activeStrokePointerId = null;
       }
+      if (ev.pointerId === polygonHoldPointerId) clearPolygonHold();
       if (ev.pointerId === pendingPointerId) {
         state.pendingDraw = false;
         pendingPointerId = null;
@@ -1318,7 +1363,7 @@
     paintCanvas.addEventListener("dblclick", (ev) => {
       ev.preventDefault();
       ev.stopPropagation();
-      if (state.tool === "polygon" && ev.target === paintCanvas) tryCommitPolygon();
+      if (state.tool === "polygon" && ev.target === paintCanvas && lastCanvasPointerType === "mouse") tryCommitPolygon();
     }, { passive: false });
 
     document.getElementById("toolPen").addEventListener("click", () => { setTool("pen"); });
@@ -1364,6 +1409,7 @@
     };
     bindHeaderAction(ui.undoBtn, undo);
     bindHeaderAction(ui.redoBtn, redo);
+    bindHeaderAction(ui.polygonConfirmBtn, () => { if (state.tool === "polygon") tryCommitPolygon(); });
 
     ui.langSelect.addEventListener("change", () => {
       state.lang = ui.langSelect.value;
